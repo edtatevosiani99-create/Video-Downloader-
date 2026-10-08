@@ -23,6 +23,7 @@ import android.os.Looper;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.DownloadListener;
+import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -115,7 +116,7 @@ public class MainActivity extends Activity {
         pageScroll=new ScrollView(this);LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);pageScroll.addView(content);
         browser=new WebView(this);browser.setBackgroundColor(BG);browser.getSettings().setJavaScriptEnabled(true);browser.getSettings().setDomStorageEnabled(true);browser.getSettings().setMediaPlaybackRequiresUserGesture(true);
         browser.setWebChromeClient(new WebChromeClient());browser.setWebViewClient(new WebViewClient());
-        browser.setDownloadListener((url,ua,disp,mime,len)->startDownload(url,disp,mime));
+        browser.setDownloadListener((url,ua,disp,mime,len)->startDownload(url,disp,mime,ua));
         content.addView(browser,new LinearLayout.LayoutParams(-1,dp(420)));
         TextView qTitle=text(tr("Downloads"),17,CYAN);qTitle.setTypeface(null,Typeface.BOLD);qTitle.setPadding(0,dp(12),0,dp(6));content.addView(qTitle);
         taskList=new LinearLayout(this);taskList.setOrientation(LinearLayout.VERTICAL);content.addView(taskList);
@@ -152,14 +153,16 @@ public class MainActivity extends Activity {
     private void downloadAddress(){String raw=normalized(urlInput.getText().toString());if(raw.isEmpty()){toast(tr("Enter a URL first"));return;}startDownload(raw,null,null);}
     private File downloadDir(){File base=getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);return base!=null?base:new File(getFilesDir(),"Download");}
     private String safeName(String name){name=name==null?"download":name.replaceAll("[\\/:*?\"<>|]","_").trim();if(name.isEmpty())name="download";return name.length()>100?name.substring(0,100):name;}
-    private void startDownload(String raw,String disposition,String mime){ startDownload(raw,disposition,mime,null); }
-    private void startDownload(String raw,String disposition,String mime,String savedName){
+    private void startDownload(String raw,String disposition,String mime){ startDownload(raw,disposition,mime,null,null); }
+    private void startDownload(String raw,String disposition,String mime,String userAgent){ startDownload(raw,disposition,mime,null,userAgent); }
+    private void startDownload(String raw,String disposition,String mime,String savedName,String userAgent){
         final String url=raw;
         final String name=safeName(savedName==null?android.webkit.URLUtil.guessFileName(url,disposition,mime):savedName);
         if(tasks.containsKey(url)){toast("Already in download queue");return;}
         if(!url.matches("(?i)^https?://.+")){toast("Only direct HTTP/HTTPS links are supported");return;}
         persistPending(url,name,false);
-        Task t=new Task(url,name);tasks.put(url,t);addTaskView(t);status.setText(tr("Download started"));t.start();
+        String ua=userAgent;if(ua==null||ua.trim().isEmpty())ua=browser!=null?browser.getSettings().getUserAgentString():"VideoDownloader/1.1";
+        Task t=new Task(url,name,ua);tasks.put(url,t);addTaskView(t);status.setText(tr("Download started"));t.start();
     }
     private synchronized void persistPending(String url,String name,boolean remove){
         try{
@@ -196,14 +199,15 @@ public class MainActivity extends Activity {
         t.viewUpdate=(pct,msg)->main.post(()->{bar.setProgress(pct);state.setText(msg);if(t.done){pause.setEnabled(false);cancel.setText(tr("Delete"));cancel.setOnClickListener(v->{card.setVisibility(View.GONE);});}});
     }
     private class Task extends Thread{
-        final String url,name;volatile boolean paused=false,cancelled=false,done=false,preservePartial=false;volatile Update viewUpdate;
-        Task(String u,String n){url=u;name=n;}
+        final String url,name,userAgent;volatile boolean paused=false,cancelled=false,done=false,preservePartial=false;volatile Update viewUpdate;
+        Task(String u,String n,String ua){url=u;name=n;userAgent=ua;}
         @Override public void run(){
             File dest=new File(downloadDir(),name);File part=new File(downloadDir(),name+".part");HttpURLConnection conn=null;
             try{
                 if(!downloadDir().exists())downloadDir().mkdirs();
                 long offset=part.exists()?part.length():0;
-                conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);conn.setRequestProperty("User-Agent","VideoDownloader/1.1");
+                conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);conn.setRequestProperty("User-Agent",userAgent);
+                String cookies=CookieManager.getInstance().getCookie(url);if(cookies!=null&&!cookies.isEmpty())conn.setRequestProperty("Cookie",cookies);
                 if(offset>0)conn.setRequestProperty("Range","bytes="+offset+"-");
                 int code=conn.getResponseCode();
                 if(code==416&&offset>0){
