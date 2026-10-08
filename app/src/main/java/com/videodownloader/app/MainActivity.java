@@ -427,7 +427,8 @@ public class MainActivity extends Activity {
             done=true;tasks.remove(url);persistPending(url,name,true);
             if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
             postNotification(2000+(Math.abs(url.hashCode())%500),saved.getName(),100,true);
-            main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
+            final File completedFile=saved;
+            main.post(()->{status.setText(tr("Download complete")+": "+completedFile.getName());refreshLibrary();});
         }
 
         private void downloadHlsStream(File dest,File part)throws Exception{
