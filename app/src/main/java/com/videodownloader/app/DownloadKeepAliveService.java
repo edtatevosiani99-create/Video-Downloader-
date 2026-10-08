@@ -42,7 +42,7 @@ public class DownloadKeepAliveService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private Notification buildNotification() {
