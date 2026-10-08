@@ -6,6 +6,7 @@ Android video/file downloader starter with a dark neon interface.
 
 - Embedded browser with a URL field
 - Direct HTTP/HTTPS file downloads
+- HLS master-playlist quality selection (resolution/bitrate) and concatenation of accessible, unencrypted MPEG-TS segments into a `.ts` video file
 - Download progress, transfer speed, size information, and Android notifications
 - Foreground download service keeps transfers running when the Activity is closed
 - Download queue limits simultaneous transfers to two at a time
@@ -26,7 +27,8 @@ Push to `main` or open **Actions → Build Android APK → Run workflow**. The w
 - Downloads work with direct HTTP/HTTPS file or media URLs that the source permits.
 - A browser page is not the same as a direct media URL; many streaming services use segmented streams, authentication, or DRM and will not download through the direct-link downloader.
 - YouTube or other protected media extraction is not implemented. The app does not bypass DRM, sign-in, paywalls, or platform restrictions.
-- MP3 encoding/conversion and quality selection for streaming sources are not implemented. Audio extraction saves the existing audio track as M4A when the source format is compatible.
+- MP3 encoding/conversion is not implemented. Audio extraction saves the existing audio track as M4A when the source format is compatible.
+- HLS quality selection is limited to accessible playlists using unencrypted MPEG-TS segments. Encrypted/DRM streams, fragmented-MP4 HLS, and platform-specific protected streams are not supported.
 - Downloads continue in a foreground service after the Activity is closed. If Android stops the app process or the device restarts, unfinished direct downloads are resumed when the app is opened again if the server supports byte-range requests.
 - Downloaded files are stored in the app-specific Downloads directory. Share/open actions can pass files to other apps.
 
