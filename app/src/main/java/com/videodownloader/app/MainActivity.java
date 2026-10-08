@@ -298,7 +298,7 @@ public class MainActivity extends Activity {
         if(intent==null||!Intent.ACTION_SEND.equals(intent.getAction()))return;
         if("text/plain".equals(intent.getType())){
             String shared=intent.getStringExtra(Intent.EXTRA_TEXT);
-            if(shared!=null){java.util.regex.Matcher m=java.util.regex.Pattern.compile("https?://\\\\S+",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(shared);if(m.find()){String link=m.group().replaceAll("[),.]+$","");urlInput.setText(link);browser.loadUrl(link);status.setText(link);}}
+            if(shared!=null){java.util.regex.Matcher m=java.util.regex.Pattern.compile("https?://\\S+",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(shared);if(m.find()){String link=m.group().replaceAll("[),.]+$","");urlInput.setText(link);browser.loadUrl(link);status.setText(link);}}
         }
     }
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);handleIncomingIntent(intent);}
