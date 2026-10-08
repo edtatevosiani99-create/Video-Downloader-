@@ -414,8 +414,15 @@ public class MainActivity extends Activity {
                     .addOption("--verbose").addOption("--user-agent",userAgent)
                     .addOption("--retries","3").addOption("--fragment-retries","3");
             String hostForExtractor=Uri.parse(url).getHost();
-            if(hostForExtractor!=null&&hostForExtractor.toLowerCase(Locale.ROOT).matches("(?i)(www\\.)?(youtube\\.com|youtu\\.be|youtube-nocookie\\.com)"))
-                request.addOption("--extractor-args","youtube:player_client=android");
+            if(hostForExtractor!=null){
+                String extractorHost=hostForExtractor.toLowerCase(Locale.ROOT);
+                if(extractorHost.equals("youtu.be")||extractorHost.endsWith(".youtu.be")||
+                   extractorHost.equals("youtube.com")||extractorHost.endsWith(".youtube.com")||
+                   extractorHost.equals("youtube-nocookie.com")||extractorHost.endsWith(".youtube-nocookie.com")){
+                    // Use YouTube's Android player client on root and mobile/music subdomains.
+                    request.addOption("--extractor-args","youtube:player_client=android");
+                }
+            }
             if(audioOnly){request.addOption("-f","bestaudio/best");}
             else{request.addOption("-f","best[height<=720]/best");}
             // Do not convert WebView's HTTP Cookie header into a Netscape cookie file.
