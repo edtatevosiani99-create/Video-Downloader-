@@ -20,7 +20,7 @@ public class DownloadKeepAliveService extends Service {
     public static final String ACTION_STOP = "com.videodownloader.app.DOWNLOAD_STOP";
     private static final int NOTIFICATION_ID = 1001;
     private static final String CHANNEL_ID = "download_service";
-    private static final Set<String> activeUrls = ConcurrentHashMap.newKeySet();
+    private static final Set<String> activeUrls = java.util.Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     public static boolean isActive(String url) { return activeUrls.contains(url); }
     public static void markActive(String url) { activeUrls.add(url); }
