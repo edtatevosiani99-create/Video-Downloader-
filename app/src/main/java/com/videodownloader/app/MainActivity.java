@@ -19,6 +19,11 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import com.naman14.androidlame.AndroidLame;
 import com.naman14.androidlame.LameBuilder;
+import dev.ffmpegkit_maintained.ytdlp.YtDlp;
+import dev.ffmpegkit_maintained.ytdlp.YtDlpException;
+import dev.ffmpegkit_maintained.ytdlp.YtDlpRequest;
+import dev.ffmpegkit_maintained.ytdlp.YtDlpResponse;
+import dev.ffmpegkit_maintained.ytdlp.DownloadProgressCallback;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -157,6 +162,26 @@ public class MainActivity extends Activity {
         }catch(Exception e){toast("Invalid URL");}
     }
     private void downloadAddress(){String raw=normalized(urlInput.getText().toString());if(raw.isEmpty()){toast(tr("Enter a URL first"));return;}startDownload(raw,null,null);}
+    private boolean needsExtractor(String raw){
+        try{
+            String host=Uri.parse(raw).getHost();
+            if(host==null)return false;
+            host=host.toLowerCase(Locale.ROOT);
+            return host.equals("youtu.be")||host.endsWith(".youtu.be")||
+                   host.equals("youtube.com")||host.endsWith(".youtube.com")||
+                   host.equals("youtube-nocookie.com")||host.endsWith(".youtube-nocookie.com");
+        }catch(Exception e){return false;}
+    }
+    private void startYtDlpDownload(String raw,String userAgent){
+        if(tasks.containsKey(raw)){toast("Already in download queue");return;}
+        String ua=userAgent;
+        if(ua==null||ua.trim().isEmpty())ua=browser!=null?browser.getSettings().getUserAgentString():"VideoDownloader/1.1";
+        String displayName="YouTube video";
+        persistPending(raw,displayName,false);
+        Task t=new Task(raw,displayName,ua,true);tasks.put(raw,t);DownloadKeepAliveService.markActive(raw);
+        try{Intent keepAlive=new Intent(this,DownloadKeepAliveService.class);keepAlive.setAction(DownloadKeepAliveService.ACTION_START);if(Build.VERSION.SDK_INT>=26)startForegroundService(keepAlive);else startService(keepAlive);}catch(Exception ignored){}
+        addTaskView(t);status.setText(tr("Download started"));t.start();
+    }
     private File downloadDir(){File base=getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);return base!=null?base:new File(getFilesDir(),"Download");}
     private String safeName(String name){name=name==null?"download":name.replaceAll("[\\/:*?\"<>|]","_").trim();if(name.isEmpty())name="download";return name.length()>100?name.substring(0,100):name;}
     private void startDownload(String raw,String disposition,String mime){ startDownload(raw,disposition,mime,null,null); }
@@ -172,6 +197,7 @@ public class MainActivity extends Activity {
         return base;
     }
     private void startDownload(String raw,String disposition,String mime,String savedName,String userAgent){
+        if(needsExtractor(raw)){startYtDlpDownload(raw,userAgent);return;}
         if(isHlsUrl(raw)){inspectHlsAndStart(raw,disposition,mime,savedName,userAgent);return;}
         startDownloadRaw(raw,disposition,mime,savedName,userAgent);
     }
@@ -278,8 +304,9 @@ public class MainActivity extends Activity {
         t.viewUpdate=(pct,msg)->main.post(()->{bar.setProgress(pct);state.setText(msg);if(t.done){pause.setEnabled(false);cancel.setText(tr("Delete"));cancel.setOnClickListener(v->{card.setVisibility(View.GONE);});}});
     }
     private class Task extends Thread{
-        final String url,name,userAgent;volatile boolean paused=false,cancelled=false,done=false,preservePartial=false;volatile Update viewUpdate;
-        Task(String u,String n,String ua){url=u;name=n;userAgent=ua;}
+        final String url,name,userAgent;final boolean extractor;volatile boolean paused=false,cancelled=false,done=false,preservePartial=false;volatile Update viewUpdate;
+        Task(String u,String n,String ua){this(u,n,ua,false);}
+        Task(String u,String n,String ua,boolean useExtractor){url=u;name=n;userAgent=ua;extractor=useExtractor;}
         @Override public void run(){
             File dest=new File(downloadDir(),name);File part=new File(downloadDir(),name+".part");HttpURLConnection conn=null;boolean slotAcquired=false;
             try{
@@ -287,6 +314,7 @@ public class MainActivity extends Activity {
                 if(cancelled)throw new InterruptedException("Cancelled");
                 slotAcquired=true;
                 if(!downloadDir().exists())downloadDir().mkdirs();
+                if(extractor){runYtDlp();return;}
                 if(isHlsUrl(url)){downloadHlsStream(dest,part);return;}
                 long offset=part.exists()?part.length():0;
                 conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);conn.setRequestProperty("User-Agent",userAgent);
@@ -369,6 +397,39 @@ public class MainActivity extends Activity {
                 }
             }
         }
+
+        private void runYtDlp()throws Exception{
+            long startedAt=System.currentTimeMillis();
+            if(viewUpdate!=null)viewUpdate.set(0,"Preparing YouTube downloader…");
+            try{YtDlp.init(MainActivity.this);}catch(YtDlpException e){throw new Exception("Downloader initialization failed: "+e.getMessage(),e);}
+            String output=new File(downloadDir(),"%(title)s.%(ext)s").getAbsolutePath();
+            YtDlpRequest request=new YtDlpRequest(url).setOutputTemplate(output)
+                    .addOption("--no-playlist").addOption("--no-warnings")
+                    .addOption("-f","best[height<=720]/best");
+            YtDlpResponse response=YtDlp.execute(request,new DownloadProgressCallback(){
+                @Override public void onProgressUpdate(float progress,long etaInSeconds,String line){
+                    final int pct=(int)Math.max(0,Math.min(99,progress));
+                    final String detail=tr("Downloading")+" "+pct+"%"+(etaInSeconds>0?" · ETA "+etaInSeconds+"s":"");
+                    if(viewUpdate!=null)viewUpdate.set(pct,detail);
+                    postNotification(2000+(Math.abs(url.hashCode())%500),name,pct,false);
+                }
+            });
+            if(response==null||!response.isSuccess())throw new Exception("yt-dlp could not download this video. Check that the video is public and available.");
+            File[] files=downloadDir().listFiles();
+            File saved=null;
+            if(files!=null)for(File f:files){
+                String n=f.getName().toLowerCase(Locale.ROOT);
+                if(f.isFile()&&f.lastModified()>=startedAt-2000&&!n.endsWith(".part")&&!n.endsWith(".ytdl")&&!n.equals(name.toLowerCase(Locale.ROOT))){
+                    if(saved==null||f.lastModified()>saved.lastModified())saved=f;
+                }
+            }
+            if(saved==null)throw new Exception("Download finished but the output file was not found.");
+            done=true;tasks.remove(url);persistPending(url,name,true);
+            if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
+            postNotification(2000+(Math.abs(url.hashCode())%500),saved.getName(),100,true);
+            main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
+        }
+
         private void downloadHlsStream(File dest,File part)throws Exception{
             String manifest=requestText(url,userAgent);
             if(!manifest.trim().startsWith("#EXTM3U"))throw new Exception("Not a valid HLS playlist");
