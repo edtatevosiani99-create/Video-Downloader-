@@ -6,6 +6,8 @@ Android video/file downloader starter with a dark neon interface.
 
 - Embedded browser with a URL field
 - Direct HTTP/HTTPS file downloads
+- Pre-download choice between video and MP3 audio for supported social-media links
+- YouTube and public Facebook link extraction through yt-dlp where the platform allows access
 - HLS master-playlist quality selection (resolution/bitrate) and concatenation of accessible, unencrypted MPEG-TS segments into a `.ts` video file
 - Download progress, transfer speed, size information, and Android notifications
 - Foreground download service keeps transfers running when the Activity is closed
@@ -26,7 +28,7 @@ Push to `main` or open **Actions → Build Android APK → Run workflow**. The w
 
 - Downloads work with direct HTTP/HTTPS file or media URLs that the source permits.
 - A browser page is not the same as a direct media URL; many streaming services use segmented streams, authentication, or DRM and will not download through the direct-link downloader.
-- YouTube or other protected media extraction is not implemented. The app does not bypass DRM, sign-in, paywalls, or platform restrictions.
+- YouTube and Facebook extraction depends on the source video being accessible to yt-dlp. Private, login-restricted, region-restricted, removed, or otherwise unavailable videos may fail. The app does not bypass DRM, sign-in, paywalls, or platform restrictions.
 - Audio extraction decodes supported audio tracks and encodes MP3 with selectable 128/192/320 kbps bitrate. Some codecs, sample rates outside 8–48 kHz, or multichannel audio may not be supported by the encoder.
 - HLS quality selection is limited to accessible playlists using unencrypted MPEG-TS segments. Encrypted/DRM streams, fragmented-MP4 HLS, and platform-specific protected streams are not supported.
 - Downloads continue in a foreground service after the Activity is closed. If Android stops the app process or the device restarts, unfinished direct downloads are resumed when the app is opened again if the server supports byte-range requests.
