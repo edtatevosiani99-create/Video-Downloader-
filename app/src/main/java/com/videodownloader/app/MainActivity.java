@@ -393,7 +393,7 @@ public class MainActivity extends Activity {
                 final File saved=dest;done=true;tasks.remove(url);persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
                 postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();if(audioOnly&&!saved.getName().toLowerCase(Locale.ROOT).endsWith(".mp3"))convertAudioToMp3(saved,null,192);});
             }catch(InterruptedException e){if(!preservePartial){part.delete();persistPending(url,name,true);}done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,preservePartial?tr("Waiting"):tr("Cancel"));}
-            catch(Exception e){done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+e.getMessage());main.post(()->status.setText(tr("Download failed")));}
+            catch(Exception e){done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);String error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();if(error.length()>900)error=error.substring(error.length()-900);final String visibleError=error;if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+visibleError);main.post(()->{status.setText(tr("Download failed")+": "+visibleError);Toast.makeText(MainActivity.this,"Download failed: "+visibleError,Toast.LENGTH_LONG).show();});}
             finally{
                 if(conn!=null)conn.disconnect();
                 if(slotAcquired)DOWNLOAD_SLOTS.release();
@@ -410,7 +410,12 @@ public class MainActivity extends Activity {
             synchronized(MainActivity.class){if(!ytDlpInitialized){try{YtDlp.init(getApplicationContext());ytDlpInitialized=true;}catch(YtDlpException e){throw new Exception("Downloader initialization failed: "+e.getMessage(),e);}}}
             String output=new File(downloadDir(),"%(title)s.%(ext)s").getAbsolutePath();
             YtDlpRequest request=new YtDlpRequest(url).setOutputTemplate(output)
-                    .addOption("--no-playlist").addOption("--no-warnings").addOption("--user-agent",userAgent);
+                    .addOption("--no-playlist").addOption("--no-warnings")
+                    .addOption("--verbose").addOption("--user-agent",userAgent)
+                    .addOption("--retries","3").addOption("--fragment-retries","3");
+            String hostForExtractor=Uri.parse(url).getHost();
+            if(hostForExtractor!=null&&hostForExtractor.toLowerCase(Locale.ROOT).matches("(?i)(www\\.)?(youtube\\.com|youtu\\.be|youtube-nocookie\\.com)"))
+                request.addOption("--extractor-args","youtube:player_client=android");
             if(audioOnly){request.addOption("-f","bestaudio/best");}
             else{request.addOption("-f","best[height<=720]/best");}
             String cookieHeader=CookieManager.getInstance().getCookie(url);
@@ -435,7 +440,15 @@ public class MainActivity extends Activity {
                     postNotification(2000+(Math.abs(url.hashCode())%500),name,pct,false);
                 }
             });
-            if(response==null||!response.isSuccess())throw new Exception("yt-dlp could not download this link. Try a public video link; if it still fails, this source may block the Android downloader or require a supported login session.");
+            if(response==null)throw new Exception("Downloader returned no result. Check your internet connection and try again.");
+            if(!response.isSuccess()){
+                String detail=response.getErrorOutput();
+                if(detail==null||detail.trim().isEmpty())detail=response.getOutput();
+                if(detail==null||detail.trim().isEmpty())detail="yt-dlp exit code "+response.getExitCode();
+                detail=detail.replaceAll("(?m)^.*(WARNING:|DEBUG:).*$","").trim();
+                if(detail.length()>900)detail=detail.substring(detail.length()-900);
+                throw new Exception("Source download failed: "+detail);
+            }
             File[] files=downloadDir().listFiles();
             File saved=null;
             if(files!=null)for(File f:files){
@@ -449,7 +462,12 @@ public class MainActivity extends Activity {
             if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
             postNotification(2000+(Math.abs(url.hashCode())%500),saved.getName(),100,true);
             final File completedFile=saved;
-            main.post(()->{status.setText(tr("Download complete")+": "+completedFile.getName());refreshLibrary();});
+            if(audioOnly){
+                main.post(()->status.setText("Converting audio to MP3…"));
+                convertAudioToMp3(completedFile,null,192);
+            }else{
+                main.post(()->{status.setText(tr("Download complete")+": "+completedFile.getName());refreshLibrary();});
+            }
         }
 
         private void downloadHlsStream(File dest,File part)throws Exception{
