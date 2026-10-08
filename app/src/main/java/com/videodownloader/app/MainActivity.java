@@ -39,6 +39,8 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private static final int BG=Color.rgb(7,10,29), PANEL=Color.rgb(17,23,51);
@@ -79,6 +81,7 @@ public class MainActivity extends Activity {
         requestNotificationPermission();
         buildUi();
         refreshLibrary();
+        restorePendingDownloads();
     }
 
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+0.5f);}
@@ -143,10 +146,37 @@ public class MainActivity extends Activity {
     private void downloadAddress(){String raw=normalized(urlInput.getText().toString());if(raw.isEmpty()){toast(tr("Enter a URL first"));return;}startDownload(raw,null,null);}
     private File downloadDir(){File base=getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);return base!=null?base:new File(getFilesDir(),"Download");}
     private String safeName(String name){name=name==null?"download":name.replaceAll("[\\/:*?\"<>|]","_").trim();if(name.isEmpty())name="download";return name.length()>100?name.substring(0,100):name;}
-    private void startDownload(String raw,String disposition,String mime){
-        final String url=raw;final String name=safeName(android.webkit.URLUtil.guessFileName(url,disposition,mime));
+    private void startDownload(String raw,String disposition,String mime){ startDownload(raw,disposition,mime,null); }
+    private void startDownload(String raw,String disposition,String mime,String savedName){
+        final String url=raw;
+        final String name=safeName(savedName==null?android.webkit.URLUtil.guessFileName(url,disposition,mime):savedName);
         if(tasks.containsKey(url)){toast("Already in download queue");return;}
+        if(!url.matches("(?i)^https?://.+")){toast("Only direct HTTP/HTTPS links are supported");return;}
+        persistPending(url,name,false);
         Task t=new Task(url,name);tasks.put(url,t);addTaskView(t);status.setText(tr("Download started"));t.start();
+    }
+    private synchronized void persistPending(String url,String name,boolean remove){
+        try{
+            android.content.SharedPreferences prefs=getSharedPreferences("downloads",MODE_PRIVATE);
+            JSONArray old=new JSONArray(prefs.getString("pending","[]"));JSONArray next=new JSONArray();
+            for(int i=0;i<old.length();i++){
+                JSONObject item=old.optJSONObject(i);
+                if(item==null||url.equals(item.optString("url")))continue;
+                next.put(item);
+            }
+            if(!remove){JSONObject item=new JSONObject();item.put("url",url);item.put("name",name);next.put(item);}
+            prefs.edit().putString("pending",next.toString()).apply();
+        }catch(Exception ignored){}
+    }
+    private void restorePendingDownloads(){
+        try{
+            JSONArray pending=new JSONArray(getSharedPreferences("downloads",MODE_PRIVATE).getString("pending","[]"));
+            for(int i=0;i<pending.length();i++){
+                JSONObject item=pending.optJSONObject(i);if(item==null)continue;
+                String url=item.optString("url","");String name=item.optString("name","download");
+                if(!url.isEmpty())startDownload(url,null,null,name);
+            }
+        }catch(Exception ignored){}
     }
     private void addTaskView(Task t){
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(8),dp(6),dp(8),dp(6));card.setBackgroundColor(PANEL);
@@ -160,7 +190,7 @@ public class MainActivity extends Activity {
         t.viewUpdate=(pct,msg)->main.post(()->{bar.setProgress(pct);state.setText(msg);if(t.done){pause.setEnabled(false);cancel.setText(tr("Delete"));cancel.setOnClickListener(v->{card.setVisibility(View.GONE);});}});
     }
     private class Task extends Thread{
-        final String url,name;volatile boolean paused=false,cancelled=false,done=false;volatile Update viewUpdate;
+        final String url,name;volatile boolean paused=false,cancelled=false,done=false,preservePartial=false;volatile Update viewUpdate;
         Task(String u,String n){url=u;name=n;}
         @Override public void run(){
             File dest=new File(downloadDir(),name);File part=new File(downloadDir(),name+".part");HttpURLConnection conn=null;
@@ -188,10 +218,10 @@ public class MainActivity extends Activity {
                 if(cancelled){part.delete();throw new InterruptedException("Cancelled");}
                 if(dest.exists())dest=new File(downloadDir(),System.currentTimeMillis()+"_"+name);
                 if(!part.renameTo(dest))throw new Exception("Could not save file");
-                final File saved=dest;done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
+                final File saved=dest;done=true;tasks.remove(url);persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
                 postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
-            }catch(InterruptedException e){part.delete();done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,tr("Cancel"));}
-            catch(Exception e){done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+e.getMessage());main.post(()->status.setText(tr("Download failed")));}
+            }catch(InterruptedException e){if(!preservePartial){part.delete();persistPending(url,name,true);}done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,preservePartial?tr("Waiting"):tr("Cancel"));}
+            catch(Exception e){done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+e.getMessage());main.post(()->status.setText(tr("Download failed")));}
             finally{if(conn!=null)conn.disconnect();}
         }
     }
@@ -223,5 +253,5 @@ public class MainActivity extends Activity {
     }
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
     @Override public void onBackPressed(){if(browser!=null&&browser.canGoBack())browser.goBack();else super.onBackPressed();}
-    @Override protected void onDestroy(){for(Task t:tasks.values()){t.cancelled=true;synchronized(t){t.notifyAll();}}if(browser!=null)browser.destroy();super.onDestroy();}
+    @Override protected void onDestroy(){for(Task t:tasks.values()){t.preservePartial=true;t.cancelled=true;synchronized(t){t.notifyAll();}}if(browser!=null)browser.destroy();super.onDestroy();}
 }
