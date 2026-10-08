@@ -158,7 +158,21 @@ public class MainActivity extends Activity {
     private String safeName(String name){name=name==null?"download":name.replaceAll("[\\/:*?\"<>|]","_").trim();if(name.isEmpty())name="download";return name.length()>100?name.substring(0,100):name;}
     private void startDownload(String raw,String disposition,String mime){ startDownload(raw,disposition,mime,null,null); }
     private void startDownload(String raw,String disposition,String mime,String userAgent){ startDownload(raw,disposition,mime,null,userAgent); }
+    private boolean isHlsUrl(String raw){return raw!=null&&raw.toLowerCase(Locale.ROOT).matches("(?s).*\\.m3u8(?:[?#].*)?$");}
+    private String hlsOutputName(String raw,String requested){
+        String base=requested;
+        if(base==null||base.trim().isEmpty()){
+            try{String path=Uri.parse(raw).getLastPathSegment();base=(path==null||path.isEmpty())?"stream":path.replaceAll("(?i)\\.m3u8$","");}catch(Exception e){base="stream";}
+        }else base=base.replaceAll("(?i)\\.m3u8$","");
+        base=safeName(base);
+        if(!base.toLowerCase(Locale.ROOT).endsWith(".ts"))base+=".ts";
+        return base;
+    }
     private void startDownload(String raw,String disposition,String mime,String savedName,String userAgent){
+        if(isHlsUrl(raw)){inspectHlsAndStart(raw,disposition,mime,savedName,userAgent);return;}
+        startDownloadRaw(raw,disposition,mime,savedName,userAgent);
+    }
+    private void startDownloadRaw(String raw,String disposition,String mime,String savedName,String userAgent){
         final String url=raw;
         final String name=safeName(savedName==null?android.webkit.URLUtil.guessFileName(url,disposition,mime):savedName);
         if(tasks.containsKey(url)){toast("Already in download queue");return;}
@@ -168,6 +182,63 @@ public class MainActivity extends Activity {
         Task t=new Task(url,name,ua);tasks.put(url,t);DownloadKeepAliveService.markActive(url);
         try{Intent keepAlive=new Intent(this,DownloadKeepAliveService.class);keepAlive.setAction(DownloadKeepAliveService.ACTION_START);if(Build.VERSION.SDK_INT>=26)startForegroundService(keepAlive);else startService(keepAlive);}catch(Exception ignored){}
         addTaskView(t);status.setText(tr("Download started"));t.start();
+    }
+    private static class HlsVariant{
+        final String url,label;
+        HlsVariant(String u,String l){url=u;label=l;}
+    }
+    private String requestText(String target,String ua)throws Exception{
+        HttpURLConnection cn=(HttpURLConnection)new URL(target).openConnection();
+        cn.setConnectTimeout(15000);cn.setReadTimeout(20000);cn.setInstanceFollowRedirects(true);
+        cn.setRequestProperty("User-Agent",ua==null||ua.isEmpty()?"VideoDownloader/1.1":ua);
+        String cookie=CookieManager.getInstance().getCookie(target);if(cookie!=null&&!cookie.isEmpty())cn.setRequestProperty("Cookie",cookie);
+        int code=cn.getResponseCode();if(code<200||code>=300){cn.disconnect();throw new java.io.IOException("HTTP "+code);}
+        try(InputStream in=cn.getInputStream();java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){
+            byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);
+            return new String(out.toByteArray(),java.nio.charset.StandardCharsets.UTF_8);
+        }finally{cn.disconnect();}
+    }
+    private void inspectHlsAndStart(String raw,String disposition,String mime,String savedName,String userAgent){
+        if(tasks.containsKey(raw)){toast("Already in download queue");return;}
+        String ua=userAgent;
+        if(ua==null||ua.trim().isEmpty())ua=browser!=null?browser.getSettings().getUserAgentString():"VideoDownloader/1.1";
+        final String agent=ua;
+        status.setText("Checking stream qualities…");
+        new Thread(()->{
+            try{
+                String manifest=requestText(raw,agent);
+                if(!manifest.trim().startsWith("#EXTM3U"))throw new Exception("Not a valid HLS playlist");
+                ArrayList<HlsVariant> variants=new ArrayList<>();
+                String[] lines=manifest.split("\\r?\\n");
+                String pendingInfo=null;
+                for(String line:lines){
+                    line=line.trim();if(line.isEmpty())continue;
+                    if(line.startsWith("#EXT-X-STREAM-INF:")){pendingInfo=line.substring(line.indexOf(':')+1);continue;}
+                    if(pendingInfo!=null&&!line.startsWith("#")){
+                        String resolution="";java.util.regex.Matcher rm=java.util.regex.Pattern.compile("RESOLUTION=(\\d+x\\d+)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(pendingInfo);
+                        if(rm.find())resolution=rm.group(1);
+                        String bandwidth="";java.util.regex.Matcher bm=java.util.regex.Pattern.compile("(?:AVERAGE-BANDWIDTH|BANDWIDTH)=(\\d+)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(pendingInfo);
+                        if(bm.find())try{bandwidth=String.format(Locale.US,"%.1f Mbps",Integer.parseInt(bm.group(1))/1000000.0);}catch(Exception ignored){}
+                        String label=!resolution.isEmpty()?resolution:(!bandwidth.isEmpty()?bandwidth:"Available quality");
+                        if(!bandwidth.isEmpty()&&!resolution.isEmpty())label+=" · "+bandwidth;
+                        variants.add(new HlsVariant(new URL(new URL(raw),line).toString(),label));pendingInfo=null;
+                    }
+                }
+                if(variants.isEmpty()){
+                    String output=hlsOutputName(raw,savedName);
+                    main.post(()->startDownloadRaw(raw,disposition,"video/mp2t",output,agent));
+                }else{
+                    String[] labels=new String[variants.size()];for(int i=0;i<variants.size();i++)labels[i]=variants.get(i).label;
+                    main.post(()->new AlertDialog.Builder(MainActivity.this).setTitle("Choose video quality").setItems(labels,(dialog,which)->{
+                        HlsVariant chosen=variants.get(which);
+                        String base=savedName;
+                        if(base==null||base.trim().isEmpty())base=hlsOutputName(raw,null);
+                        base=base.replaceAll("(?i)\\.ts$","").replaceAll("(?i)\\.m3u8$","")+"_"+chosen.label.replaceAll("[^A-Za-z0-9]+","_")+".ts";
+                        startDownloadRaw(chosen.url,null,"video/mp2t",safeName(base),agent);
+                    }).setNegativeButton("Cancel",null).show());
+                }
+            }catch(Exception e){String msg=e.getMessage()==null?"Could not read stream":e.getMessage();main.post(()->{status.setText("Stream check failed");toast(msg);});}
+        },"hls-inspect").start();
     }
     private synchronized void persistPending(String url,String name,boolean remove){
         try{
@@ -213,6 +284,7 @@ public class MainActivity extends Activity {
                 if(cancelled)throw new InterruptedException("Cancelled");
                 slotAcquired=true;
                 if(!downloadDir().exists())downloadDir().mkdirs();
+                if(isHlsUrl(url)){downloadHlsStream(dest,part);return;}
                 long offset=part.exists()?part.length():0;
                 conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);conn.setRequestProperty("User-Agent",userAgent);
                 String cookies=CookieManager.getInstance().getCookie(url);if(cookies!=null&&!cookies.isEmpty())conn.setRequestProperty("Cookie",cookies);
@@ -295,6 +367,50 @@ public class MainActivity extends Activity {
             }
         }
     }
+        private void downloadHlsStream(File dest,File part)throws Exception{
+            String manifest=requestText(url,userAgent);
+            if(!manifest.trim().startsWith("#EXTM3U"))throw new Exception("Not a valid HLS playlist");
+            if(manifest.contains("#EXT-X-STREAM-INF:"))throw new Exception("Choose a quality level again by adding the master playlist");
+            if(manifest.matches("(?s).*#EXT-X-KEY:(?!.*METHOD=NONE).*"))throw new Exception("Encrypted HLS streams are not supported");
+            if(manifest.contains("#EXT-X-MAP:"))throw new Exception("Fragmented MP4 HLS is not supported yet; TS segments are required");
+            ArrayList<String> segments=new ArrayList<>();
+            for(String line:manifest.split("\\r?\\n")){
+                line=line.trim();if(!line.isEmpty()&&!line.startsWith("#"))segments.add(new URL(new URL(url),line).toString());
+            }
+            if(segments.isEmpty())throw new Exception("Playlist contains no media segments");
+            long transferred=0;long started=System.currentTimeMillis();
+            try(FileOutputStream out=new FileOutputStream(part,false)){
+                byte[] buffer=new byte[32768];
+                for(int i=0;i<segments.size();i++){
+                    if(cancelled)throw new InterruptedException("Cancelled");
+                    HttpURLConnection seg=(HttpURLConnection)new URL(segments.get(i)).openConnection();
+                    seg.setConnectTimeout(15000);seg.setReadTimeout(20000);seg.setInstanceFollowRedirects(true);
+                    seg.setRequestProperty("User-Agent",userAgent);
+                    String cookie=CookieManager.getInstance().getCookie(segments.get(i));if(cookie!=null&&!cookie.isEmpty())seg.setRequestProperty("Cookie",cookie);
+                    int code=seg.getResponseCode();if(code<200||code>=300){seg.disconnect();throw new java.io.IOException("Segment HTTP "+code);}
+                    try(InputStream in=new BufferedInputStream(seg.getInputStream())){
+                        int n;while((n=in.read(buffer))!=-1){
+                            synchronized(this){while(paused&&!cancelled)wait();}
+                            if(cancelled)throw new InterruptedException("Cancelled");
+                            out.write(buffer,0,n);transferred+=n;
+                            int pct=(int)Math.min(99,((long)i*100/segments.size()));
+                            long now=System.currentTimeMillis();
+                            if(viewUpdate!=null&&(now-started>0))viewUpdate.set(pct,"HLS "+(i+1)+"/"+segments.size()+" · "+android.text.format.Formatter.formatFileSize(MainActivity.this,transferred));
+                            if(now-started>=0)postNotification(2000+(Math.abs(url.hashCode())%500),name,pct,false);
+                        }
+                    }finally{seg.disconnect();}
+                }
+                out.flush();
+            }
+            if(cancelled){part.delete();throw new InterruptedException("Cancelled");}
+            if(part.length()==0)throw new Exception("No media data received");
+            if(dest.exists())dest=new File(downloadDir(),System.currentTimeMillis()+"_"+name);
+            if(!part.renameTo(dest))throw new Exception("Could not save HLS stream");
+            File saved=dest;done=true;tasks.remove(url);persistPending(url,name,true);
+            if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
+            postNotification(2000+(Math.abs(url.hashCode())%500),name,100,true);
+            main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
+        }
     private interface Update{void set(int pct,String msg);}
     private void refreshLibrary(){
         if(fileList==null)return;fileList.removeAllViews();File[] fs=downloadDir().listFiles();
