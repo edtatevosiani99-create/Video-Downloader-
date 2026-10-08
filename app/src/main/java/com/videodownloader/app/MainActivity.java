@@ -418,20 +418,15 @@ public class MainActivity extends Activity {
                 request.addOption("--extractor-args","youtube:player_client=android");
             if(audioOnly){request.addOption("-f","bestaudio/best");}
             else{request.addOption("-f","best[height<=720]/best");}
-            String cookieHeader=CookieManager.getInstance().getCookie(url);
-            if(cookieHeader!=null&&!cookieHeader.trim().isEmpty()){
-                File cookieFile=new File(getCacheDir(),"ytdlp-cookies.txt");
-                String host=Uri.parse(url).getHost();
-                try(FileOutputStream cookieOut=new FileOutputStream(cookieFile)){
-                    cookieOut.write("# Netscape HTTP Cookie File\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                    for(String pair:cookieHeader.split(";")){int eq=pair.indexOf("=");if(eq<=0)continue;String key=pair.substring(0,eq).trim(),value=pair.substring(eq+1).trim();
-                        String domain=(host==null?"":host.toLowerCase(Locale.ROOT));
-                        String row=domain+"\tTRUE\t/\tFALSE\t0\t"+key+"\t"+value+"\n";
-                        cookieOut.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                    }
-                }
-                request.addOption("--cookies",cookieFile.getAbsolutePath());
-            }
+            // Do not convert WebView's HTTP Cookie header into a Netscape cookie file.
+            // The header does not contain the domain/path/secure/expiry metadata required by
+            // yt-dlp's cookie-file parser; synthesizing those fields creates invalid files.
+            // Public video URLs can be downloaded without this file. Login-only media may
+            // require a future, proper cookie import flow instead of fabricated metadata.
+            try {
+                File staleCookieFile=new File(getCacheDir(),"ytdlp-cookies.txt");
+                if(staleCookieFile.exists()) staleCookieFile.delete();
+            } catch(Exception ignored) {}
             YtDlpResponse response=YtDlp.execute(request,new DownloadProgressCallback(){
                 @Override public void onProgressUpdate(float progress,long etaInSeconds,String line){
                     final int pct=(int)Math.max(0,Math.min(99,progress));
