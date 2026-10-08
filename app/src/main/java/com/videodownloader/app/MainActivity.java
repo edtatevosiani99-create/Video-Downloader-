@@ -501,7 +501,7 @@ public class MainActivity extends Activity {
             .setNegativeButton("Cancel",null).show();
     }
     private void convertAudioToMp3(File source,Button action,int bitrate){
-        action.setEnabled(false);action.setText(tr("Waiting"));
+        if(action!=null){action.setEnabled(false);action.setText(tr("Waiting"));}
         new Thread(()->{
             File output=null;MediaExtractor extractor=null;MediaCodec decoder=null;AndroidLame lame=null;FileOutputStream out=null;
             boolean decoderStarted=false;boolean inputDone=false;boolean outputDone=false;int samples=0;
