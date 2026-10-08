@@ -366,7 +366,6 @@ public class MainActivity extends Activity {
                 }
             }
         }
-    }
         private void downloadHlsStream(File dest,File part)throws Exception{
             String manifest=requestText(url,userAgent);
             if(!manifest.trim().startsWith("#EXTM3U"))throw new Exception("Not a valid HLS playlist");
@@ -411,6 +410,7 @@ public class MainActivity extends Activity {
             postNotification(2000+(Math.abs(url.hashCode())%500),name,100,true);
             main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
         }
+    }
     private interface Update{void set(int pct,String msg);}
     private void refreshLibrary(){
         if(fileList==null)return;fileList.removeAllViews();File[] fs=downloadDir().listFiles();
