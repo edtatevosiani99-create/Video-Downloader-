@@ -283,7 +283,7 @@ public class MainActivity extends Activity {
                 if(conn!=null)conn.disconnect();
                 DownloadKeepAliveService.markInactive(url);
                 if(!DownloadKeepAliveService.hasActiveDownloads()){
-                    try{Intent stop=new Intent(MainActivity.this,DownloadKeepAliveService.class);stop.setAction(DownloadKeepAliveService.ACTION_STOP);startService(stop);}catch(Exception ignored){}
+                    try{stopService(new Intent(MainActivity.this,DownloadKeepAliveService.class));}catch(Exception ignored){}
                 }
             }
         }
