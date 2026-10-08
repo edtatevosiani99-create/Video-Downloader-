@@ -161,7 +161,7 @@ public class MainActivity extends Activity {
             browser.loadUrl(raw);status.setText(u.getHost());
         }catch(Exception e){toast("Invalid URL");}
     }
-    private void downloadAddress(){String raw=normalized(urlInput.getText().toString());if(raw.isEmpty()){toast(tr("Enter a URL first"));return;}startDownload(raw,null,null);}
+    private void downloadAddress(){String raw=normalized(urlInput.getText().toString());if(raw.isEmpty()){toast(tr("Enter a URL first"));return;}new AlertDialog.Builder(this).setTitle("Choose download format").setItems(new String[]{"Video (best available, up to 720p)","Audio only (MP3)"},(d,which)->startDownload(raw,null,null,null,null,which==1)).setNegativeButton("Cancel",null).show();}
     private boolean needsExtractor(String raw){
         try{
             String host=Uri.parse(raw).getHost();
@@ -169,16 +169,18 @@ public class MainActivity extends Activity {
             host=host.toLowerCase(Locale.ROOT);
             return host.equals("youtu.be")||host.endsWith(".youtu.be")||
                    host.equals("youtube.com")||host.endsWith(".youtube.com")||
-                   host.equals("youtube-nocookie.com")||host.endsWith(".youtube-nocookie.com");
+                   host.equals("youtube-nocookie.com")||host.endsWith(".youtube-nocookie.com")||
+                   host.equals("fb.watch")||host.endsWith(".fb.watch")||
+                   host.equals("facebook.com")||host.endsWith(".facebook.com");
         }catch(Exception e){return false;}
     }
-    private void startYtDlpDownload(String raw,String userAgent){
+    private void startYtDlpDownload(String raw,String userAgent,boolean audioOnly){
         if(tasks.containsKey(raw)){toast("Already in download queue");return;}
         String ua=userAgent;
         if(ua==null||ua.trim().isEmpty())ua=browser!=null?browser.getSettings().getUserAgentString():"VideoDownloader/1.1";
-        String displayName="YouTube video";
+        String displayName=audioOnly?"Audio MP3":"Online video";
         persistPending(raw,displayName,false);
-        Task t=new Task(raw,displayName,ua,true);tasks.put(raw,t);DownloadKeepAliveService.markActive(raw);
+        Task t=new Task(raw,displayName,ua,true,audioOnly);tasks.put(raw,t);DownloadKeepAliveService.markActive(raw);
         try{Intent keepAlive=new Intent(this,DownloadKeepAliveService.class);keepAlive.setAction(DownloadKeepAliveService.ACTION_START);if(Build.VERSION.SDK_INT>=26)startForegroundService(keepAlive);else startService(keepAlive);}catch(Exception ignored){}
         addTaskView(t);status.setText(tr("Download started"));t.start();
     }
@@ -196,19 +198,21 @@ public class MainActivity extends Activity {
         if(!base.toLowerCase(Locale.ROOT).endsWith(".ts"))base+=".ts";
         return base;
     }
-    private void startDownload(String raw,String disposition,String mime,String savedName,String userAgent){
-        if(needsExtractor(raw)){startYtDlpDownload(raw,userAgent);return;}
-        if(isHlsUrl(raw)){inspectHlsAndStart(raw,disposition,mime,savedName,userAgent);return;}
-        startDownloadRaw(raw,disposition,mime,savedName,userAgent);
+    private void startDownload(String raw,String disposition,String mime,String savedName,String userAgent){startDownload(raw,disposition,mime,savedName,userAgent,false);}
+    private void startDownload(String raw,String disposition,String mime,String savedName,String userAgent,boolean audioOnly){
+        if(needsExtractor(raw)){startYtDlpDownload(raw,userAgent,audioOnly);return;}
+        if(isHlsUrl(raw)){if(audioOnly){toast("This stream link needs to be downloaded as video first; then use Extract MP3 in the library.");return;}inspectHlsAndStart(raw,disposition,mime,savedName,userAgent);return;}
+        startDownloadRaw(raw,disposition,mime,savedName,userAgent,audioOnly);
     }
-    private void startDownloadRaw(String raw,String disposition,String mime,String savedName,String userAgent){
+    private void startDownloadRaw(String raw,String disposition,String mime,String savedName,String userAgent){startDownloadRaw(raw,disposition,mime,savedName,userAgent,false);}
+    private void startDownloadRaw(String raw,String disposition,String mime,String savedName,String userAgent,boolean audioOnly){
         final String url=raw;
         final String name=safeName(savedName==null?android.webkit.URLUtil.guessFileName(url,disposition,mime):savedName);
         if(tasks.containsKey(url)){toast("Already in download queue");return;}
         if(!url.matches("(?i)^https?://.+")){toast("Only direct HTTP/HTTPS links are supported");return;}
         persistPending(url,name,false);
         String ua=userAgent;if(ua==null||ua.trim().isEmpty())ua=browser!=null?browser.getSettings().getUserAgentString():"VideoDownloader/1.1";
-        Task t=new Task(url,name,ua);tasks.put(url,t);DownloadKeepAliveService.markActive(url);
+        Task t=new Task(url,name,ua,false,audioOnly);tasks.put(url,t);DownloadKeepAliveService.markActive(url);
         try{Intent keepAlive=new Intent(this,DownloadKeepAliveService.class);keepAlive.setAction(DownloadKeepAliveService.ACTION_START);if(Build.VERSION.SDK_INT>=26)startForegroundService(keepAlive);else startService(keepAlive);}catch(Exception ignored){}
         addTaskView(t);status.setText(tr("Download started"));t.start();
     }
@@ -304,9 +308,10 @@ public class MainActivity extends Activity {
         t.viewUpdate=(pct,msg)->main.post(()->{bar.setProgress(pct);state.setText(msg);if(t.done){pause.setEnabled(false);cancel.setText(tr("Delete"));cancel.setOnClickListener(v->{card.setVisibility(View.GONE);});}});
     }
     private class Task extends Thread{
-        final String url,name,userAgent;final boolean extractor;volatile boolean paused=false,cancelled=false,done=false,preservePartial=false;volatile Update viewUpdate;
-        Task(String u,String n,String ua){this(u,n,ua,false);}
-        Task(String u,String n,String ua,boolean useExtractor){url=u;name=n;userAgent=ua;extractor=useExtractor;}
+        final String url,name,userAgent;final boolean extractor,audioOnly;volatile boolean paused=false,cancelled=false,done=false,preservePartial=false;volatile Update viewUpdate;
+        Task(String u,String n,String ua){this(u,n,ua,false,false);}
+        Task(String u,String n,String ua,boolean useExtractor){this(u,n,ua,useExtractor,false);}
+        Task(String u,String n,String ua,boolean useExtractor,boolean audio){url=u;name=n;userAgent=ua;extractor=useExtractor;audioOnly=audio;}
         @Override public void run(){
             File dest=new File(downloadDir(),name);File part=new File(downloadDir(),name+".part");HttpURLConnection conn=null;boolean slotAcquired=false;
             try{
@@ -385,7 +390,7 @@ public class MainActivity extends Activity {
                 if(dest.exists())dest=new File(downloadDir(),System.currentTimeMillis()+"_"+name);
                 if(!part.renameTo(dest))throw new Exception("Could not save file");
                 final File saved=dest;done=true;tasks.remove(url);persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
-                postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
+                postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();if(audioOnly&&!saved.getName().toLowerCase(Locale.ROOT).endsWith(".mp3"))convertAudioToMp3(saved,null,192);});
             }catch(InterruptedException e){if(!preservePartial){part.delete();persistPending(url,name,true);}done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,preservePartial?tr("Waiting"):tr("Cancel"));}
             catch(Exception e){done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+e.getMessage());main.post(()->status.setText(tr("Download failed")));}
             finally{
@@ -404,8 +409,9 @@ public class MainActivity extends Activity {
             try{YtDlp.init(MainActivity.this);}catch(YtDlpException e){throw new Exception("Downloader initialization failed: "+e.getMessage(),e);}
             String output=new File(downloadDir(),"%(title)s.%(ext)s").getAbsolutePath();
             YtDlpRequest request=new YtDlpRequest(url).setOutputTemplate(output)
-                    .addOption("--no-playlist").addOption("--no-warnings")
-                    .addOption("-f","best[height<=720]/best");
+                    .addOption("--no-playlist").addOption("--no-warnings");
+            if(audioOnly){request.addOption("-x").addOption("--audio-format","mp3").addOption("--audio-quality","0");}
+            else{request.addOption("-f","best[height<=720]/best");}
             YtDlpResponse response=YtDlp.execute(request,new DownloadProgressCallback(){
                 @Override public void onProgressUpdate(float progress,long etaInSeconds,String line){
                     final int pct=(int)Math.max(0,Math.min(99,progress));
