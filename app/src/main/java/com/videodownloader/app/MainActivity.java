@@ -183,7 +183,7 @@ public class MainActivity extends Activity {
             for(int i=0;i<pending.length();i++){
                 JSONObject item=pending.optJSONObject(i);if(item==null)continue;
                 String url=item.optString("url","");String name=item.optString("name","download");
-                if(!url.isEmpty())startDownload(url,null,null,name);
+                if(!url.isEmpty())startDownload(url,null,null,name,null);
             }
         }catch(Exception ignored){}
     }
