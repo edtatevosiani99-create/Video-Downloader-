@@ -218,6 +218,19 @@ public class MainActivity extends Activity {
                     String retryCookies=CookieManager.getInstance().getCookie(url);if(retryCookies!=null&&!retryCookies.isEmpty())conn.setRequestProperty("Cookie",retryCookies);
                     code=conn.getResponseCode();
                 }
+                if(offset>0&&code==206){
+                    String rangeHeader=conn.getHeaderField("Content-Range");
+                    java.util.regex.Matcher rangeMatcher=java.util.regex.Pattern.compile("(?i)^bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)$").matcher(rangeHeader==null?"":rangeHeader.trim());
+                    boolean validRange=rangeMatcher.matches()&&Long.parseLong(rangeMatcher.group(1))==offset;
+                    if(!validRange){
+                        conn.disconnect();part.delete();offset=0;
+                        conn=(HttpURLConnection)new URL(url).openConnection();
+                        conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);
+                        conn.setRequestProperty("User-Agent",userAgent);
+                        String retryCookies=CookieManager.getInstance().getCookie(url);if(retryCookies!=null&&!retryCookies.isEmpty())conn.setRequestProperty("Cookie",retryCookies);
+                        code=conn.getResponseCode();
+                    }
+                }
                 if(code<200||code>=300)throw new Exception("HTTP "+code);
                 String responseType=conn.getContentType();
                 if(responseType!=null&&responseType.toLowerCase(Locale.ROOT).contains("text/html")){
@@ -226,7 +239,12 @@ public class MainActivity extends Activity {
                 }
                 if(offset>0&&code!=206){offset=0;part.delete();}
                 long responseLength; if (Build.VERSION.SDK_INT >= 24) responseLength=conn.getContentLengthLong(); else responseLength=conn.getContentLength();
-                long total=responseLength;if(total>0)total+=offset;
+                long total=responseLength;
+                String contentRange=conn.getHeaderField("Content-Range");
+                if(contentRange!=null){
+                    java.util.regex.Matcher totalMatcher=java.util.regex.Pattern.compile("(?i)^bytes\\s+\\d+-\\d+/(\\d+)$").matcher(contentRange.trim());
+                    if(totalMatcher.matches())try{total=Long.parseLong(totalMatcher.group(1));}catch(NumberFormatException ignored){}
+                }else if(total>0&&offset>0)total+=offset;
                 InputStream in=new BufferedInputStream(conn.getInputStream());FileOutputStream out=new FileOutputStream(part,offset>0);
                 byte[] buf=new byte[32768];long count=offset;int n;
                 while((n=in.read(buf))!=-1){
