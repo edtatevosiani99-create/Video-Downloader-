@@ -243,7 +243,7 @@ public class MainActivity extends Activity {
                 String manifest=requestText(raw,agent);
                 if(!manifest.trim().startsWith("#EXTM3U"))throw new Exception("Not a valid HLS playlist");
                 ArrayList<HlsVariant> variants=new ArrayList<>();
-                String[] lines=manifest.split("\\r?\\n");
+                String[] lines=manifest.split("\\r?\n");
                 String pendingInfo=null;
                 for(String line:lines){
                     line=line.trim();if(line.isEmpty())continue;
@@ -418,10 +418,10 @@ public class MainActivity extends Activity {
                 File cookieFile=new File(getCacheDir(),"ytdlp-cookies.txt");
                 String host=Uri.parse(url).getHost();
                 try(FileOutputStream cookieOut=new FileOutputStream(cookieFile)){
-                    cookieOut.write("# Netscape HTTP Cookie File\\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    cookieOut.write("# Netscape HTTP Cookie File\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
                     for(String pair:cookieHeader.split(";")){int eq=pair.indexOf("=");if(eq<=0)continue;String key=pair.substring(0,eq).trim(),value=pair.substring(eq+1).trim();
                         String domain=(host==null?"":host.toLowerCase(Locale.ROOT));
-                        String row=domain+"\\tTRUE\\t/\\tFALSE\\t0\\t"+key+"\\t"+value+"\\n";
+                        String row=domain+"\tTRUE\t/\tFALSE\t0\t"+key+"\t"+value+"\n";
                         cookieOut.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                     }
                 }
@@ -459,7 +459,7 @@ public class MainActivity extends Activity {
             if(manifest.matches("(?s).*#EXT-X-KEY:(?!.*METHOD=NONE).*"))throw new Exception("Encrypted HLS streams are not supported");
             if(manifest.contains("#EXT-X-MAP:"))throw new Exception("Fragmented MP4 HLS is not supported yet; TS segments are required");
             ArrayList<String> segments=new ArrayList<>();
-            for(String line:manifest.split("\\r?\\n")){
+            for(String line:manifest.split("\\r?\n")){
                 line=line.trim();if(!line.isEmpty()&&!line.startsWith("#"))segments.add(new URL(new URL(url),line).toString());
             }
             if(segments.isEmpty())throw new Exception("Playlist contains no media segments");
