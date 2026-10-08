@@ -7,6 +7,7 @@ import android.app.NotificationManager;
 import android.app.Notification;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
@@ -51,7 +52,7 @@ public class MainActivity extends Activity {
     private WebView browser;
     private ScrollView pageScroll;
     private String language="en";
-    private int nextNotification=2000;
+    private int nextNotification=2000;\n    private static final int NOTIFICATION_PERMISSION_REQUEST=7001;
 
     private String tr(String key) {
         String[][] values={
@@ -158,7 +159,7 @@ public class MainActivity extends Activity {
                 int code=conn.getResponseCode();
                 if(code<200||code>=300)throw new Exception("HTTP "+code);
                 if(offset>0&&code!=206){offset=0;part.delete();}
-                long total=conn.getContentLengthLong();if(total>0)total+=offset;
+                long responseLength; if (Build.VERSION.SDK_INT >= 24) responseLength=conn.getContentLengthLong(); else responseLength=conn.getContentLength();\n                long total=responseLength;if(total>0)total+=offset;
                 InputStream in=new BufferedInputStream(conn.getInputStream());FileOutputStream out=new FileOutputStream(part,offset>0);
                 byte[] buf=new byte[32768];long count=offset;int n;
                 while((n=in.read(buf))!=-1){
@@ -167,14 +168,14 @@ public class MainActivity extends Activity {
                     out.write(buf,0,n);count+=n;
                     final int pct=total>0?(int)Math.min(99,count*100/total):0;
                     if(viewUpdate!=null)viewUpdate.set(pct,paused?tr("Paused"):tr("Downloading")+(total>0?" "+pct+"%":""));
-                    if(nextNotification<2100)postNotification(nextNotification,name,pct,false);
+                    postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,pct,false);
                 }
                 out.flush();out.close();in.close();
                 if(cancelled){part.delete();throw new InterruptedException("Cancelled");}
                 if(dest.exists())dest=new File(downloadDir(),System.currentTimeMillis()+"_"+name);
                 if(!part.renameTo(dest))throw new Exception("Could not save file");
                 final File saved=dest;done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
-                postNotification(nextNotification++,name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
+                postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
             }catch(InterruptedException e){part.delete();done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,tr("Cancel"));}
             catch(Exception e){done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+e.getMessage());main.post(()->status.setText(tr("Download failed")));}
             finally{if(conn!=null)conn.disconnect();}
@@ -197,7 +198,7 @@ public class MainActivity extends Activity {
         catch(Exception e){shareFile(f);}
     }
     private void shareFile(File f){try{Uri u=FileProvider.getUriForFile(this,"com.videodownloader.app.fileprovider",f);Intent i=new Intent(Intent.ACTION_SEND);i.setType("*/*");i.putExtra(Intent.EXTRA_STREAM,u);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(i,tr("Share")));}catch(Exception e){toast(e.getMessage());}}
-    private void createNotificationChannel(){if(Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);nm.createNotificationChannel(new NotificationChannel("downloads","Downloads",NotificationManager.IMPORTANCE_LOW));}}
+    private void requestNotificationPermission(){\n        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=PackageManager.PERMISSION_GRANTED){\n            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},NOTIFICATION_PERMISSION_REQUEST);\n        }\n    }\n    private void createNotificationChannel(){if(Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);nm.createNotificationChannel(new NotificationChannel("downloads","Downloads",NotificationManager.IMPORTANCE_LOW));}}
     private void postNotification(int id,String name,int pct,boolean done){
         try{Notification n=new NotificationCompat.Builder(this,"downloads").setSmallIcon(android.R.drawable.stat_sys_download_done).setContentTitle(name).setContentText(done?tr("Download complete"):tr("Downloading")+" "+pct+"%").setProgress(100,pct,!done).setOngoing(!done).build();((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(id,n);}catch(Exception ignored){}
     }
