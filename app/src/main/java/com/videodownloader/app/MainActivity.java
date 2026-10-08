@@ -200,6 +200,13 @@ public class MainActivity extends Activity {
                 conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);conn.setRequestProperty("User-Agent","VideoDownloader/1.1");
                 if(offset>0)conn.setRequestProperty("Range","bytes="+offset+"-");
                 int code=conn.getResponseCode();
+                if(code==416&&offset>0){
+                    conn.disconnect();part.delete();offset=0;
+                    conn=(HttpURLConnection)new URL(url).openConnection();
+                    conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);
+                    conn.setRequestProperty("User-Agent","VideoDownloader/1.1");
+                    code=conn.getResponseCode();
+                }
                 if(code<200||code>=300)throw new Exception("HTTP "+code);
                 if(offset>0&&code!=206){offset=0;part.delete();}
                 long responseLength; if (Build.VERSION.SDK_INT >= 24) responseLength=conn.getContentLengthLong(); else responseLength=conn.getContentLength();
@@ -238,7 +245,12 @@ public class MainActivity extends Activity {
         }
     }
     private void openFile(File f){
-        try{Uri u=FileProvider.getUriForFile(this,"com.videodownloader.app.fileprovider",f);Intent i=new Intent(Intent.ACTION_VIEW);i.setDataAndType(u,getContentResolver().getType(u));i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(i);}
+        try{
+            Uri u=FileProvider.getUriForFile(this,"com.videodownloader.app.fileprovider",f);
+            String mime=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(f.getName()));
+            Intent i=new Intent(Intent.ACTION_VIEW);i.setDataAndType(u,mime==null?"*/*":mime);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(i);
+        }
         catch(Exception e){shareFile(f);}
     }
     private void shareFile(File f){try{Uri u=FileProvider.getUriForFile(this,"com.videodownloader.app.fileprovider",f);Intent i=new Intent(Intent.ACTION_SEND);i.setType("*/*");i.putExtra(Intent.EXTRA_STREAM,u);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(i,tr("Share")));}catch(Exception e){toast(e.getMessage());}}
