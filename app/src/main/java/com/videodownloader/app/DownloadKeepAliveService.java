@@ -7,6 +7,7 @@ import android.app.Service;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 import androidx.core.app.NotificationCompat;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,6 +21,7 @@ public class DownloadKeepAliveService extends Service {
     public static final String ACTION_STOP = "com.videodownloader.app.DOWNLOAD_STOP";
     private static final int NOTIFICATION_ID = 1001;
     private static final String CHANNEL_ID = "download_service";
+    private PowerManager.WakeLock downloadWakeLock;
     private static final Set<String> activeUrls = java.util.Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     public static boolean isActive(String url) { return activeUrls.contains(url); }
@@ -34,6 +36,13 @@ public class DownloadKeepAliveService extends Service {
             nm.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "Active downloads", NotificationManager.IMPORTANCE_LOW));
         }
         startForeground(NOTIFICATION_ID, buildNotification());
+        // Keep only the CPU awake during an active transfer; never keep the screen on.
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        if (pm != null) {
+            downloadWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, getPackageName() + ":downloads");
+            downloadWakeLock.setReferenceCounted(false);
+            downloadWakeLock.acquire(6L * 60L * 60L * 1000L);
+        }
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -53,6 +62,13 @@ public class DownloadKeepAliveService extends Service {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build();
+    }
+
+    @Override public void onDestroy() {
+        if (downloadWakeLock != null && downloadWakeLock.isHeld()) {
+            downloadWakeLock.release();
+        }
+        super.onDestroy();
     }
 
     @Override public IBinder onBind(Intent intent) { return null; }
