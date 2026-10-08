@@ -269,6 +269,7 @@ public class MainActivity extends Activity {
                     }
                 }
                 out.flush();out.close();in.close();
+                if(total>0&&count<total)throw new java.io.IOException("Incomplete download: received "+count+" of "+total+" bytes");
                 if(cancelled){part.delete();throw new InterruptedException("Cancelled");}
                 if(dest.exists())dest=new File(downloadDir(),System.currentTimeMillis()+"_"+name);
                 if(!part.renameTo(dest))throw new Exception("Could not save file");
