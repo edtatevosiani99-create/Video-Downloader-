@@ -247,13 +247,26 @@ public class MainActivity extends Activity {
                 }else if(total>0&&offset>0)total+=offset;
                 InputStream in=new BufferedInputStream(conn.getInputStream());FileOutputStream out=new FileOutputStream(part,offset>0);
                 byte[] buf=new byte[32768];long count=offset;int n;
+                long startedAt=System.currentTimeMillis(),lastUiUpdate=0,lastNotificationUpdate=0;
                 while((n=in.read(buf))!=-1){
                     synchronized(this){while(paused&&!cancelled)wait();}
                     if(cancelled)throw new InterruptedException("Cancelled");
                     out.write(buf,0,n);count+=n;
                     final int pct=total>0?(int)Math.min(99,count*100/total):0;
-                    if(viewUpdate!=null)viewUpdate.set(pct,paused?tr("Paused"):tr("Downloading")+(total>0?" "+pct+"%":""));
-                    postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,pct,false);
+                    long now=System.currentTimeMillis();
+                    if(viewUpdate!=null&&(now-lastUiUpdate>=500)){
+                        long transferred=count-offset;
+                        long bytesPerSecond=transferred*1000/Math.max(1,now-startedAt);
+                        String detail=tr("Downloading")+(total>0?" "+pct+"%":"")+" · "+android.text.format.Formatter.formatFileSize(MainActivity.this,transferred);
+                        if(total>0)detail+=" / "+android.text.format.Formatter.formatFileSize(MainActivity.this,total);
+                        if(bytesPerSecond>0)detail+=" · "+android.text.format.Formatter.formatFileSize(MainActivity.this,bytesPerSecond)+"/s";
+                        viewUpdate.set(pct,paused?tr("Paused"):detail);
+                        lastUiUpdate=now;
+                    }
+                    if(now-lastNotificationUpdate>=1000){
+                        postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,pct,false);
+                        lastNotificationUpdate=now;
+                    }
                 }
                 out.flush();out.close();in.close();
                 if(cancelled){part.delete();throw new InterruptedException("Cancelled");}
