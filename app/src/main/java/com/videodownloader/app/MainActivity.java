@@ -45,6 +45,8 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -53,6 +55,7 @@ public class MainActivity extends Activity {
     private static final int CYAN=Color.rgb(0,220,255), PURPLE=Color.rgb(190,55,255);
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ConcurrentHashMap<String, Task> tasks=new ConcurrentHashMap<>();
+    private static final Semaphore DOWNLOAD_SLOTS=new Semaphore(2,true);
     private final ArrayList<File> completed=new ArrayList<>();
     private LinearLayout root, taskList, fileList;
     private EditText urlInput;
@@ -204,8 +207,11 @@ public class MainActivity extends Activity {
         final String url,name,userAgent;volatile boolean paused=false,cancelled=false,done=false,preservePartial=false;volatile Update viewUpdate;
         Task(String u,String n,String ua){url=u;name=n;userAgent=ua;}
         @Override public void run(){
-            File dest=new File(downloadDir(),name);File part=new File(downloadDir(),name+".part");HttpURLConnection conn=null;
+            File dest=new File(downloadDir(),name);File part=new File(downloadDir(),name+".part");HttpURLConnection conn=null;boolean slotAcquired=false;
             try{
+                while(!cancelled&&!DOWNLOAD_SLOTS.tryAcquire(500,TimeUnit.MILLISECONDS)){if(viewUpdate!=null)viewUpdate.set(0,tr("Waiting"));}
+                if(cancelled)throw new InterruptedException("Cancelled");
+                slotAcquired=true;
                 if(!downloadDir().exists())downloadDir().mkdirs();
                 long offset=part.exists()?part.length():0;
                 conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);conn.setRequestProperty("User-Agent",userAgent);
@@ -281,6 +287,7 @@ public class MainActivity extends Activity {
             catch(Exception e){done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+e.getMessage());main.post(()->status.setText(tr("Download failed")));}
             finally{
                 if(conn!=null)conn.disconnect();
+                if(slotAcquired)DOWNLOAD_SLOTS.release();
                 DownloadKeepAliveService.markInactive(url);
                 if(!DownloadKeepAliveService.hasActiveDownloads()){
                     try{stopService(new Intent(MainActivity.this,DownloadKeepAliveService.class));}catch(Exception ignored){}
