@@ -162,7 +162,9 @@ public class MainActivity extends Activity {
         if(!url.matches("(?i)^https?://.+")){toast("Only direct HTTP/HTTPS links are supported");return;}
         persistPending(url,name,false);
         String ua=userAgent;if(ua==null||ua.trim().isEmpty())ua=browser!=null?browser.getSettings().getUserAgentString():"VideoDownloader/1.1";
-        Task t=new Task(url,name,ua);tasks.put(url,t);addTaskView(t);status.setText(tr("Download started"));t.start();
+        Task t=new Task(url,name,ua);tasks.put(url,t);DownloadKeepAliveService.markActive(url);
+        try{Intent keepAlive=new Intent(this,DownloadKeepAliveService.class);keepAlive.setAction(DownloadKeepAliveService.ACTION_START);if(Build.VERSION.SDK_INT>=26)startForegroundService(keepAlive);else startService(keepAlive);}catch(Exception ignored){}
+        addTaskView(t);status.setText(tr("Download started"));t.start();
     }
     private synchronized void persistPending(String url,String name,boolean remove){
         try{
@@ -183,7 +185,7 @@ public class MainActivity extends Activity {
             for(int i=0;i<pending.length();i++){
                 JSONObject item=pending.optJSONObject(i);if(item==null)continue;
                 String url=item.optString("url","");String name=item.optString("name","download");
-                if(!url.isEmpty())startDownload(url,null,null,name,null);
+                if(!url.isEmpty()&&!DownloadKeepAliveService.isActive(url))startDownload(url,null,null,name,null);
             }
         }catch(Exception ignored){}
     }
@@ -277,7 +279,13 @@ public class MainActivity extends Activity {
                 postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
             }catch(InterruptedException e){if(!preservePartial){part.delete();persistPending(url,name,true);}done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,preservePartial?tr("Waiting"):tr("Cancel"));}
             catch(Exception e){done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+e.getMessage());main.post(()->status.setText(tr("Download failed")));}
-            finally{if(conn!=null)conn.disconnect();}
+            finally{
+                if(conn!=null)conn.disconnect();
+                DownloadKeepAliveService.markInactive(url);
+                if(!DownloadKeepAliveService.hasActiveDownloads()){
+                    try{Intent stop=new Intent(MainActivity.this,DownloadKeepAliveService.class);stop.setAction(DownloadKeepAliveService.ACTION_STOP);startService(stop);}catch(Exception ignored){}
+                }
+            }
         }
     }
     private interface Update{void set(int pct,String msg);}
@@ -366,5 +374,9 @@ public class MainActivity extends Activity {
     }
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
     @Override public void onBackPressed(){if(browser!=null&&browser.canGoBack())browser.goBack();else super.onBackPressed();}
-    @Override protected void onDestroy(){for(Task t:tasks.values()){t.preservePartial=true;t.cancelled=true;synchronized(t){t.notifyAll();}}if(browser!=null)browser.destroy();super.onDestroy();}
+    @Override protected void onDestroy(){
+        // Transfers run under DownloadKeepAliveService; keep them alive when the Activity closes.
+        if(browser!=null)browser.destroy();
+        super.onDestroy();
+    }
 }
