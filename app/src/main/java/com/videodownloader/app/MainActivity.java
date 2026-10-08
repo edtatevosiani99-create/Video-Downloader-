@@ -11,6 +11,10 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
+import android.media.MediaMuxer;
+import java.nio.ByteBuffer;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -59,13 +63,13 @@ public class MainActivity extends Activity {
 
     private String tr(String key) {
         String[][] values={
-          {"en","Video Downloader","Paste a link","Open","Download","Downloads","Ready","Advertisement","Pause","Resume","Cancel","Play","Share","Delete","No downloaded files yet","Enter a URL first","Download started","Download complete","Download failed","Choose language","Download only content you have permission to save.","Browser","Library","English","Русский","ქართული","Waiting","Paused","Downloading"},
-          {"ru","Video Downloader","Вставь ссылку","Открыть","Скачать","Загрузки","Готово","Реклама","Пауза","Продолжить","Отмена","Открыть","Поделиться","Удалить","Пока нет загруженных файлов","Сначала введи ссылку","Загрузка началась","Загрузка завершена","Ошибка загрузки","Выбери язык","Скачивай только материалы, которые разрешено сохранять.","Браузер","Файлы","English","Русский","ქართული","Ожидание","На паузе","Загрузка"},
-          {"ka","Video Downloader","ჩასვი ბმული","გახსნა","ჩამოტვირთვა","ჩამოტვირთვები","მზადაა","რეკლამა","პაუზა","გაგრძელება","გაუქმება","გახსნა","გაზიარება","წაშლა","ჩამოტვირთული ფაილები ჯერ არ არის","ჯერ შეიყვანე ბმული","ჩამოტვირთვა დაიწყო","ჩამოტვირთვა დასრულდა","ჩამოტვირთვა ვერ მოხერხდა","აირჩიე ენა","ჩამოტვირთე მხოლოდ ის მასალა, რომლის შენახვაც ნებადართულია.","ბრაუზერი","ფაილები","English","Русский","ქართული","მოლოდინი","შეჩერებულია","იტვირთება"},
-          {"es","Video Downloader","Pega un enlace","Abrir","Descargar","Descargas","Listo","Publicidad","Pausar","Reanudar","Cancelar","Reproducir","Compartir","Eliminar","Aún no hay archivos descargados","Introduce un enlace primero","Descarga iniciada","Descarga completada","Error de descarga","Elegir idioma","Descarga solo contenido que tengas permiso para guardar.","Navegador","Biblioteca","English","Русский","ქართული","En espera","En pausa","Descargando"},
-          {"de","Video Downloader","Link einfügen","Öffnen","Herunterladen","Downloads","Bereit","Werbung","Pause","Fortsetzen","Abbrechen","Abspielen","Teilen","Löschen","Noch keine Dateien heruntergeladen","Gib zuerst einen Link ein","Download gestartet","Download abgeschlossen","Download fehlgeschlagen","Sprache wählen","Lade nur Inhalte herunter, die du speichern darfst.","Browser","Mediathek","English","Русский","ქართული","Wartend","Pausiert","Wird heruntergeladen"},
-          {"fr","Video Downloader","Coller un lien","Ouvrir","Télécharger","Téléchargements","Prêt","Publicité","Pause","Reprendre","Annuler","Lire","Partager","Supprimer","Aucun fichier téléchargé","Saisis d’abord un lien","Téléchargement démarré","Téléchargement terminé","Échec du téléchargement","Choisir la langue","Télécharge uniquement les contenus que tu es autorisé à enregistrer.","Navigateur","Bibliothèque","English","Русский","ქართული","En attente","En pause","Téléchargement"},
-          {"tr","Video Downloader","Bağlantı yapıştır","Aç","İndir","İndirilenler","Hazır","Reklam","Duraklat","Sürdür","İptal","Oynat","Paylaş","Sil","Henüz indirilen dosya yok","Önce bir bağlantı gir","İndirme başladı","İndirme tamamlandı","İndirme başarısız","Dil seç","Yalnızca kaydetme iznin olan içerikleri indir.","Tarayıcı","Kitaplık","English","Русский","ქართული","Bekliyor","Duraklatıldı","İndiriliyor"}
+          {"en","Video Downloader","Paste a link","Open","Download","Downloads","Ready","Advertisement","Pause","Resume","Cancel","Play","Share","Delete","No downloaded files yet","Enter a URL first","Download started","Download complete","Download failed","Choose language","Download only content you have permission to save.","Browser","Library","English","Русский","ქართული","Waiting","Paused","Downloading","Extract audio","Audio saved","Audio extraction failed"},
+          {"ru","Video Downloader","Вставь ссылку","Открыть","Скачать","Загрузки","Готово","Реклама","Пауза","Продолжить","Отмена","Открыть","Поделиться","Удалить","Пока нет загруженных файлов","Сначала введи ссылку","Загрузка началась","Загрузка завершена","Ошибка загрузки","Выбери язык","Скачивай только материалы, которые разрешено сохранять.","Браузер","Файлы","English","Русский","ქართული","Ожидание","На паузе","Загрузка","Извлечь аудио","Аудио сохранено","Не удалось извлечь аудио"},
+          {"ka","Video Downloader","ჩასვი ბმული","გახსნა","ჩამოტვირთვა","ჩამოტვირთვები","მზადაა","რეკლამა","პაუზა","გაგრძელება","გაუქმება","გახსნა","გაზიარება","წაშლა","ჩამოტვირთული ფაილები ჯერ არ არის","ჯერ შეიყვანე ბმული","ჩამოტვირთვა დაიწყო","ჩამოტვირთვა დასრულდა","ჩამოტვირთვა ვერ მოხერხდა","აირჩიე ენა","ჩამოტვირთე მხოლოდ ის მასალა, რომლის შენახვაც ნებადართულია.","ბრაუზერი","ფაილები","English","Русский","ქართული","მოლოდინი","შეჩერებულია","იტვირთება","აუდიოს ამოღება","აუდიო შენახულია","აუდიოს ამოღება ვერ მოხერხდა"},
+          {"es","Video Downloader","Pega un enlace","Abrir","Descargar","Descargas","Listo","Publicidad","Pausar","Reanudar","Cancelar","Reproducir","Compartir","Eliminar","Aún no hay archivos descargados","Introduce un enlace primero","Descarga iniciada","Descarga completada","Error de descarga","Elegir idioma","Descarga solo contenido que tengas permiso para guardar.","Navegador","Biblioteca","English","Русский","ქართული","En espera","En pausa","Descargando","Extraer audio","Audio guardado","Error al extraer audio"},
+          {"de","Video Downloader","Link einfügen","Öffnen","Herunterladen","Downloads","Bereit","Werbung","Pause","Fortsetzen","Abbrechen","Abspielen","Teilen","Löschen","Noch keine Dateien heruntergeladen","Gib zuerst einen Link ein","Download gestartet","Download abgeschlossen","Download fehlgeschlagen","Sprache wählen","Lade nur Inhalte herunter, die du speichern darfst.","Browser","Mediathek","English","Русский","ქართული","Wartend","Pausiert","Wird heruntergeladen","Audio extrahieren","Audio gespeichert","Audioextraktion fehlgeschlagen"},
+          {"fr","Video Downloader","Coller un lien","Ouvrir","Télécharger","Téléchargements","Prêt","Publicité","Pause","Reprendre","Annuler","Lire","Partager","Supprimer","Aucun fichier téléchargé","Saisis d’abord un lien","Téléchargement démarré","Téléchargement terminé","Échec du téléchargement","Choisir la langue","Télécharge uniquement les contenus que tu es autorisé à enregistrer.","Navigateur","Bibliothèque","English","Русский","ქართული","En attente","En pause","Téléchargement","Extraire l’audio","Audio enregistré","Échec de l’extraction audio"},
+          {"tr","Video Downloader","Bağlantı yapıştır","Aç","İndir","İndirilenler","Hazır","Reklam","Duraklat","Sürdür","İptal","Oynat","Paylaş","Sil","Henüz indirilen dosya yok","Önce bir bağlantı gir","İndirme başladı","İndirme tamamlandı","İndirme başarısız","Dil seç","Yalnızca kaydetme iznin olan içerikleri indir.","Tarayıcı","Kitaplık","English","Русский","ქართული","Bekliyor","Duraklatıldı","İndiriliyor","Sesi çıkar","Ses kaydedildi","Ses çıkarılamadı"}
         };
         int idx=0; for(int i=0;i<values[0].length;i++) if(values[0][i].equals(key)){idx=i;break;}
         int row=language.equals("ru")?1:language.equals("ka")?2:language.equals("es")?3:language.equals("de")?4:language.equals("fr")?5:language.equals("tr")?6:0;
@@ -81,6 +85,7 @@ public class MainActivity extends Activity {
         requestNotificationPermission();
         buildUi();
         refreshLibrary();
+        handleIncomingIntent(getIntent());
         restorePendingDownloads();
     }
 
@@ -240,7 +245,9 @@ public class MainActivity extends Activity {
             LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(8),dp(5),dp(8),dp(5));card.setBackgroundColor(PANEL);
             card.addView(text(f.getName(),13,Color.WHITE));card.addView(text(android.text.format.Formatter.formatFileSize(this,f.length()),11,Color.LTGRAY));
             LinearLayout row=new LinearLayout(this);Button play=button(tr("Play"),true),share=button(tr("Share"),false),del=button(tr("Delete"),false);
-            row.addView(play,new LinearLayout.LayoutParams(0,dp(38),1));row.addView(share,new LinearLayout.LayoutParams(0,dp(38),1));row.addView(del,new LinearLayout.LayoutParams(0,dp(38),1));card.addView(row);fileList.addView(card);
+            row.addView(play,new LinearLayout.LayoutParams(0,dp(38),1));row.addView(share,new LinearLayout.LayoutParams(0,dp(38),1));row.addView(del,new LinearLayout.LayoutParams(0,dp(38),1));card.addView(row);
+            if(isMediaFile(f)){Button audio=button(tr("Extract audio"),false);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(36));ap.topMargin=dp(4);card.addView(audio,ap);audio.setOnClickListener(v->extractAudio(f,audio));}
+            fileList.addView(card);
             play.setOnClickListener(v->openFile(f));share.setOnClickListener(v->shareFile(f));del.setOnClickListener(v->{if(f.delete()){refreshLibrary();toast(tr("Delete"));}});
         }
     }
