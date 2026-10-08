@@ -12,6 +12,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.media.MediaExtractor;
+import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
 import java.nio.ByteBuffer;
@@ -251,6 +252,56 @@ public class MainActivity extends Activity {
             play.setOnClickListener(v->openFile(f));share.setOnClickListener(v->shareFile(f));del.setOnClickListener(v->{if(f.delete()){refreshLibrary();toast(tr("Delete"));}});
         }
     }
+    private boolean isMediaFile(File f){
+        String ext=android.webkit.MimeTypeMap.getFileExtensionFromUrl(f.getName()).toLowerCase(Locale.ROOT);
+        String mime=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+        return mime!=null&&(mime.startsWith("video/")||mime.startsWith("audio/"));
+    }
+    private void extractAudio(File source,Button action){
+        action.setEnabled(false);action.setText(tr("Waiting"));
+        new Thread(()->{
+            File output=null;MediaExtractor extractor=null;MediaMuxer muxer=null;boolean started=false;
+            try{
+                extractor=new MediaExtractor();extractor.setDataSource(source.getAbsolutePath());
+                int audioTrack=-1;MediaFormat audioFormat=null;
+                for(int i=0;i<extractor.getTrackCount();i++){
+                    MediaFormat format=extractor.getTrackFormat(i);
+                    String mime=format.getString(MediaFormat.KEY_MIME);
+                    if(mime!=null&&mime.startsWith("audio/")){audioTrack=i;audioFormat=format;break;}
+                }
+                if(audioTrack<0)throw new Exception("No audio track found");
+                String base=source.getName();int dot=base.lastIndexOf('.');if(dot>0)base=base.substring(0,dot);
+                output=new File(downloadDir(),safeName(base+"_audio.m4a"));
+                if(output.exists())output=new File(downloadDir(),safeName(base+"_audio_"+System.currentTimeMillis()+".m4a"));
+                muxer=new MediaMuxer(output.getAbsolutePath(),MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+                int outputTrack=muxer.addTrack(audioFormat);muxer.start();started=true;extractor.selectTrack(audioTrack);
+                ByteBuffer buffer=ByteBuffer.allocate(1024*1024);
+                MediaCodec.BufferInfo info=new MediaCodec.BufferInfo();
+                while(true){
+                    buffer.clear();int size=extractor.readSampleData(buffer,0);if(size<0)break;
+                    info.offset=0;info.size=size;info.presentationTimeUs=extractor.getSampleTime();info.flags=extractor.getSampleFlags();
+                    muxer.writeSampleData(outputTrack,buffer,info);extractor.advance();
+                }
+                if(output.length()==0)throw new Exception("No audio samples");
+                File done=output;main.post(()->{action.setEnabled(true);action.setText(tr("Extract audio"));toast(tr("Audio saved"));refreshLibrary();});
+            }catch(Exception e){
+                if(output!=null)output.delete();
+                String error=e.getMessage()==null?"":e.getMessage();
+                main.post(()->{action.setEnabled(true);action.setText(tr("Extract audio"));toast(tr("Audio extraction failed")+(error.isEmpty()?"":": "+error));});
+            }finally{
+                if(extractor!=null)try{extractor.release();}catch(Exception ignored){}
+                if(muxer!=null){if(started)try{muxer.stop();}catch(Exception ignored){}try{muxer.release();}catch(Exception ignored){}}
+            }
+        }).start();
+    }
+    private void handleIncomingIntent(Intent intent){
+        if(intent==null||!Intent.ACTION_SEND.equals(intent.getAction()))return;
+        if("text/plain".equals(intent.getType())){
+            String shared=intent.getStringExtra(Intent.EXTRA_TEXT);
+            if(shared!=null){java.util.regex.Matcher m=java.util.regex.Pattern.compile("https?://\\\\S+",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(shared);if(m.find()){String link=m.group().replaceAll("[),.]+$","");urlInput.setText(link);browser.loadUrl(link);status.setText(link);}}
+        }
+    }
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);handleIncomingIntent(intent);}
     private void openFile(File f){
         try{
             Uri u=FileProvider.getUriForFile(this,"com.videodownloader.app.fileprovider",f);
