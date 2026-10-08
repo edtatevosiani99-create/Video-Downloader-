@@ -72,6 +72,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
+        language=getSharedPreferences("settings",MODE_PRIVATE).getString("language","en");
         getWindow().setStatusBarColor(BG); getWindow().setNavigationBarColor(BG);
         File d=downloadDir(); if(!d.exists()) d.mkdirs();
         createNotificationChannel();
@@ -120,7 +121,13 @@ public class MainActivity extends Activity {
     }
     private void chooseLanguage(){
         new AlertDialog.Builder(this).setTitle(tr("Choose language")).setItems(new String[]{"English","Русский","ქართული","Español","Deutsch","Français","Türkçe"},(d,w)->{
-            language=w==1?"ru":w==2?"ka":w==3?"es":w==4?"de":w==5?"fr":w==6?"tr":"en";buildUi();refreshLibrary();
+            language=w==1?"ru":w==2?"ka":w==3?"es":w==4?"de":w==5?"fr":w==6?"tr":"en";
+            getSharedPreferences("settings",MODE_PRIVATE).edit().putString("language",language).apply();
+            String currentUrl=browser==null?null:browser.getUrl();
+            buildUi();
+            if(currentUrl!=null&&!currentUrl.isEmpty())browser.loadUrl(currentUrl);
+            for(Task task:tasks.values())addTaskView(task);
+            refreshLibrary();
         }).show();
     }
     private String normalized(String raw){
