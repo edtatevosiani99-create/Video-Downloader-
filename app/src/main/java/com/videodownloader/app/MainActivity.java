@@ -214,6 +214,11 @@ public class MainActivity extends Activity {
                     code=conn.getResponseCode();
                 }
                 if(code<200||code>=300)throw new Exception("HTTP "+code);
+                String responseType=conn.getContentType();
+                if(responseType!=null&&responseType.toLowerCase(Locale.ROOT).contains("text/html")){
+                    part.delete();persistPending(url,name,true);
+                    throw new Exception("This is a web page, not a direct file link");
+                }
                 if(offset>0&&code!=206){offset=0;part.delete();}
                 long responseLength; if (Build.VERSION.SDK_INT >= 24) responseLength=conn.getContentLengthLong(); else responseLength=conn.getContentLength();
                 long total=responseLength;if(total>0)total+=offset;
