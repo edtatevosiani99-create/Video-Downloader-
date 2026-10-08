@@ -214,7 +214,8 @@ public class MainActivity extends Activity {
                     conn.disconnect();part.delete();offset=0;
                     conn=(HttpURLConnection)new URL(url).openConnection();
                     conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);
-                    conn.setRequestProperty("User-Agent","VideoDownloader/1.1");
+                    conn.setRequestProperty("User-Agent",userAgent);
+                    String retryCookies=CookieManager.getInstance().getCookie(url);if(retryCookies!=null&&!retryCookies.isEmpty())conn.setRequestProperty("Cookie",retryCookies);
                     code=conn.getResponseCode();
                 }
                 if(code<200||code>=300)throw new Exception("HTTP "+code);
