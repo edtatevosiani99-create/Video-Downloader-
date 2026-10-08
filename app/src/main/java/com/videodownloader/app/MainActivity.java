@@ -59,6 +59,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
+    private static volatile boolean ytDlpInitialized=false;
     private static final int BG=Color.rgb(7,10,29), PANEL=Color.rgb(17,23,51);
     private static final int CYAN=Color.rgb(0,220,255), PURPLE=Color.rgb(190,55,255);
     private final Handler main=new Handler(Looper.getMainLooper());
@@ -406,12 +407,26 @@ public class MainActivity extends Activity {
         private void runYtDlp()throws Exception{
             long startedAt=System.currentTimeMillis();
             if(viewUpdate!=null)viewUpdate.set(0,"Preparing YouTube downloader…");
-            try{YtDlp.init(MainActivity.this);}catch(YtDlpException e){throw new Exception("Downloader initialization failed: "+e.getMessage(),e);}
+            synchronized(MainActivity.class){if(!ytDlpInitialized){try{YtDlp.init(getApplicationContext());ytDlpInitialized=true;}catch(YtDlpException e){throw new Exception("Downloader initialization failed: "+e.getMessage(),e);}}}
             String output=new File(downloadDir(),"%(title)s.%(ext)s").getAbsolutePath();
             YtDlpRequest request=new YtDlpRequest(url).setOutputTemplate(output)
-                    .addOption("--no-playlist").addOption("--no-warnings");
-            if(audioOnly){request.addOption("-x").addOption("--audio-format","mp3").addOption("--audio-quality","0");}
+                    .addOption("--no-playlist").addOption("--no-warnings").addOption("--user-agent",userAgent);
+            if(audioOnly){request.addOption("-f","bestaudio/best");}
             else{request.addOption("-f","best[height<=720]/best");}
+            String cookieHeader=CookieManager.getInstance().getCookie(url);
+            if(cookieHeader!=null&&!cookieHeader.trim().isEmpty()){
+                File cookieFile=new File(getCacheDir(),"ytdlp-cookies.txt");
+                String host=Uri.parse(url).getHost();
+                try(FileOutputStream cookieOut=new FileOutputStream(cookieFile)){
+                    cookieOut.write("# Netscape HTTP Cookie File\\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    for(String pair:cookieHeader.split(";")){int eq=pair.indexOf("=");if(eq<=0)continue;String key=pair.substring(0,eq).trim(),value=pair.substring(eq+1).trim();
+                        String domain=(host==null?"":host.toLowerCase(Locale.ROOT));
+                        String row=domain+"\\tTRUE\\t/\\tFALSE\\t0\\t"+key+"\\t"+value+"\\n";
+                        cookieOut.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                }
+                request.addOption("--cookies",cookieFile.getAbsolutePath());
+            }
             YtDlpResponse response=YtDlp.execute(request,new DownloadProgressCallback(){
                 @Override public void onProgressUpdate(float progress,long etaInSeconds,String line){
                     final int pct=(int)Math.max(0,Math.min(99,progress));
@@ -420,7 +435,7 @@ public class MainActivity extends Activity {
                     postNotification(2000+(Math.abs(url.hashCode())%500),name,pct,false);
                 }
             });
-            if(response==null||!response.isSuccess())throw new Exception("yt-dlp could not download this video. Check that the video is public and available.");
+            if(response==null||!response.isSuccess())throw new Exception("yt-dlp could not download this link. Try a public video link; if it still fails, this source may block the Android downloader or require a supported login session.");
             File[] files=downloadDir().listFiles();
             File saved=null;
             if(files!=null)for(File f:files){
@@ -583,11 +598,11 @@ public class MainActivity extends Activity {
                 int tail=lame.flush(encoded);if(tail>0)out.write(encoded,0,tail);out.flush();out.close();out=null;
                 if(!output.exists()||output.length()==0)throw new Exception("MP3 output is empty");
                 File saved=output;
-                main.post(()->{action.setEnabled(true);action.setText(tr("Extract MP3"));toast("MP3 saved: "+saved.getName());refreshLibrary();});
+                main.post(()->{if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}toast("MP3 saved: "+saved.getName());refreshLibrary();});
             }catch(Exception e){
                 if(output!=null)output.delete();
                 String error=e.getMessage()==null?"":e.getMessage();
-                main.post(()->{action.setEnabled(true);action.setText(tr("Extract MP3"));toast(tr("Audio extraction failed")+(error.isEmpty()?"":": "+error));});
+                main.post(()->{if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}toast(tr("Audio extraction failed")+(error.isEmpty()?"":": "+error));});
             }finally{
                 if(out!=null)try{out.close();}catch(Exception ignored){}
                 if(lame!=null)try{lame.close();}catch(Exception ignored){}
