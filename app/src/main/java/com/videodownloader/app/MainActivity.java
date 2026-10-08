@@ -52,7 +52,8 @@ public class MainActivity extends Activity {
     private WebView browser;
     private ScrollView pageScroll;
     private String language="en";
-    private int nextNotification=2000;\n    private static final int NOTIFICATION_PERMISSION_REQUEST=7001;
+    private int nextNotification=2000;
+    private static final int NOTIFICATION_PERMISSION_REQUEST=7001;
 
     private String tr(String key) {
         String[][] values={
@@ -159,7 +160,8 @@ public class MainActivity extends Activity {
                 int code=conn.getResponseCode();
                 if(code<200||code>=300)throw new Exception("HTTP "+code);
                 if(offset>0&&code!=206){offset=0;part.delete();}
-                long responseLength; if (Build.VERSION.SDK_INT >= 24) responseLength=conn.getContentLengthLong(); else responseLength=conn.getContentLength();\n                long total=responseLength;if(total>0)total+=offset;
+                long responseLength; if (Build.VERSION.SDK_INT >= 24) responseLength=conn.getContentLengthLong(); else responseLength=conn.getContentLength();
+                long total=responseLength;if(total>0)total+=offset;
                 InputStream in=new BufferedInputStream(conn.getInputStream());FileOutputStream out=new FileOutputStream(part,offset>0);
                 byte[] buf=new byte[32768];long count=offset;int n;
                 while((n=in.read(buf))!=-1){
