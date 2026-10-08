@@ -1,15 +1,20 @@
 package com.videodownloader.app;
 
 import android.app.Activity;
-import android.app.DownloadManager;
+import android.app.AlertDialog;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.Notification;
 import android.content.Context;
-import android.net.Uri;
-import android.os.Bundle;
-import android.os.Environment;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.DownloadListener;
 import android.webkit.WebChromeClient;
@@ -19,182 +24,184 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.core.app.NotificationCompat;
+import androidx.core.content.FileProvider;
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class MainActivity extends Activity {
-    private static final int BG = Color.rgb(7, 10, 29);
-    private static final int PANEL = Color.rgb(17, 23, 51);
-    private static final int CYAN = Color.rgb(0, 220, 255);
-    private static final int MAGENTA = Color.rgb(225, 40, 255);
+    private static final int BG=Color.rgb(7,10,29), PANEL=Color.rgb(17,23,51);
+    private static final int CYAN=Color.rgb(0,220,255), PURPLE=Color.rgb(190,55,255);
+    private final Handler main=new Handler(Looper.getMainLooper());
+    private final ConcurrentHashMap<String, Task> tasks=new ConcurrentHashMap<>();
+    private final ArrayList<File> completed=new ArrayList<>();
+    private LinearLayout root, taskList, fileList;
     private EditText urlInput;
+    private TextView status, libraryTitle;
     private WebView browser;
-    private TextView status;
-    private ProgressBar progress;
+    private ScrollView pageScroll;
+    private String language="en";
+    private int nextNotification=2000;
 
-    @Override public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(BG);
-        getWindow().setNavigationBarColor(BG);
-        getWindow().getDecorView().setSystemUiVisibility(0);
+    private String tr(String key) {
+        String[][] values={
+          {"en","Video Downloader","Paste a link","Open","Download","Downloads","Ready","Advertisement","Pause","Resume","Cancel","Play","Share","Delete","No downloaded files yet","Enter a URL first","Download started","Download complete","Download failed","Choose language","Download only content you have permission to save.","Browser","Library","English","Русский","ქართული","Waiting","Paused","Downloading"},
+          {"ru","Video Downloader","Вставь ссылку","Открыть","Скачать","Загрузки","Готово","Реклама","Пауза","Продолжить","Отмена","Открыть","Поделиться","Удалить","Пока нет загруженных файлов","Сначала введи ссылку","Загрузка началась","Загрузка завершена","Ошибка загрузки","Выбери язык","Скачивай только материалы, которые разрешено сохранять.","Браузер","Файлы","English","Русский","ქართული","Ожидание","На паузе","Загрузка"},
+          {"ka","Video Downloader","ჩასვი ბმული","გახსნა","ჩამოტვირთვა","ჩამოტვირთვები","მზადაა","რეკლამა","პაუზა","გაგრძელება","გაუქმება","გახსნა","გაზიარება","წაშლა","ჩამოტვირთული ფაილები ჯერ არ არის","ჯერ შეიყვანე ბმული","ჩამოტვირთვა დაიწყო","ჩამოტვირთვა დასრულდა","ჩამოტვირთვა ვერ მოხერხდა","აირჩიე ენა","ჩამოტვირთე მხოლოდ ის მასალა, რომლის შენახვაც ნებადართულია.","ბრაუზერი","ფაილები","English","Русский","ქართული","მოლოდინი","შეჩერებულია","იტვირთება"}
+        };
+        int idx=0; for(int i=0;i<values[0].length;i++) if(values[0][i].equals(key)){idx=i;break;}
+        int row=language.equals("ru")?1:language.equals("ka")?2:0;
+        return values[row][idx];
+    }
+
+    @Override public void onCreate(Bundle b) {
+        super.onCreate(b);
+        getWindow().setStatusBarColor(BG); getWindow().setNavigationBarColor(BG);
+        File d=downloadDir(); if(!d.exists()) d.mkdirs();
+        createNotificationChannel();
         buildUi();
+        refreshLibrary();
     }
 
-    private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(BG);
-        root.setPadding(dp(16), dp(12), dp(16), 0);
-
-        TextView logo = new TextView(this);
-        logo.setText("▶ ↓  Video Downloader");
-        logo.setTextColor(CYAN);
-        logo.setTextSize(25);
-        logo.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        logo.setGravity(android.view.Gravity.CENTER);
-        root.addView(logo, new LinearLayout.LayoutParams(-1, dp(54)));
-
-        TextView subtitle = new TextView(this);
-        subtitle.setText("Paste a direct media link or browse the web");
-        subtitle.setTextColor(Color.LTGRAY);
-        subtitle.setTextSize(13);
-        subtitle.setGravity(android.view.Gravity.CENTER);
-        root.addView(subtitle, new LinearLayout.LayoutParams(-1, dp(28)));
-
-        urlInput = new EditText(this);
-        urlInput.setSingleLine(true);
-        urlInput.setTextColor(Color.WHITE);
-        urlInput.setHintTextColor(Color.GRAY);
-        urlInput.setHint("https://example.com/video.mp4");
-        urlInput.setTextSize(14);
-        urlInput.setPadding(dp(12), 0, dp(12), 0);
-        urlInput.setBackgroundColor(PANEL);
-        root.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(50)));
-
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button open = makeButton("Open link", CYAN);
-        Button download = makeButton("Download", MAGENTA);
-        actions.addView(open, new LinearLayout.LayoutParams(0, dp(48), 1));
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(0, dp(48), 1);
-        dlp.leftMargin = dp(8);
-        actions.addView(download, dlp);
-        root.addView(actions);
-
-        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progress.setIndeterminate(true);
-        progress.setVisibility(View.GONE);
-        root.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
-
-        status = new TextView(this);
-        status.setText("Ready. Only download content you have permission to save.");
-        status.setTextColor(Color.LTGRAY);
-        status.setTextSize(12);
-        status.setPadding(0, dp(8), 0, dp(8));
-        root.addView(status, new LinearLayout.LayoutParams(-1, dp(38)));
-
-        browser = new WebView(this);
-        browser.setBackgroundColor(BG);
-        browser.getSettings().setJavaScriptEnabled(true);
-        browser.getSettings().setDomStorageEnabled(true);
-        browser.getSettings().setMediaPlaybackRequiresUserGesture(true);
-        browser.setWebChromeClient(new WebChromeClient() {
-            @Override public void onProgressChanged(WebView view, int newProgress) {
-                progress.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
-            }
-        });
-        browser.setWebViewClient(new WebViewClient());
-        browser.setDownloadListener(new DownloadListener() {
-            @Override public void onDownloadStart(String url, String userAgent, String contentDisposition,
-                    String mimeType, long contentLength) {
-                enqueueDownload(url, contentDisposition, mimeType);
-            }
-        });
-        LinearLayout.LayoutParams webLp = new LinearLayout.LayoutParams(-1, 0, 1);
-        webLp.topMargin = dp(4);
-        root.addView(browser, webLp);
-
-        // Reserved, non-intrusive banner area for a future ad SDK integration.
-        TextView ad = new TextView(this);
-        ad.setText("Advertisement");
-        ad.setTextColor(Color.GRAY);
-        ad.setTextSize(10);
-        ad.setGravity(android.view.Gravity.CENTER);
-        ad.setBackgroundColor(Color.rgb(12, 15, 34));
-        root.addView(ad, new LinearLayout.LayoutParams(-1, dp(32)));
-
-        setContentView(root);
-        open.setOnClickListener(v -> openAddress());
-        download.setOnClickListener(v -> downloadAddress());
-        browser.loadUrl("https://www.google.com");
-    }
-
-    private Button makeButton(String label, int color) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(13);
-        b.setAllCaps(false);
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(color == CYAN ? Color.rgb(0, 105, 150) : Color.rgb(115, 28, 160)));
+    private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+0.5f);}
+    private TextView text(String s,int size,int color){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(color);return t;}
+    private Button button(String s,boolean primary){
+        Button b=new Button(this); b.setText(s); b.setTextColor(Color.WHITE); b.setTextSize(13); b.setAllCaps(false);
+        b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(primary?Color.rgb(0,105,150):Color.rgb(95,30,135)));
         return b;
     }
-
-    private void openAddress() {
-        String raw = urlInput.getText().toString().trim();
-        if (raw.isEmpty()) { toast("Enter a URL first"); return; }
-        if (!raw.matches("(?i)^https?://.*")) raw = "https://" + raw;
-        try {
-            Uri uri = Uri.parse(raw);
-            if (uri.getHost() == null) throw new IllegalArgumentException();
-            ((InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE))
-                    .hideSoftInputFromWindow(urlInput.getWindowToken(), 0);
-            browser.loadUrl(uri.toString());
-            status.setText("Opened: " + uri.getHost());
-        } catch (Exception e) { toast("Please enter a valid web address"); }
+    private void buildUi(){
+        root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);root.setPadding(dp(14),dp(8),dp(14),0);
+        LinearLayout top=new LinearLayout(this);top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView logo=text("▶ ↓  Video Downloader",23,CYAN);logo.setTypeface(null,Typeface.BOLD);top.addView(logo,new LinearLayout.LayoutParams(0,dp(52),1));
+        Button lang=button("文",false);top.addView(lang,new LinearLayout.LayoutParams(dp(48),dp(44)));lang.setOnClickListener(v->chooseLanguage());root.addView(top);
+        urlInput=new EditText(this);urlInput.setSingleLine(true);urlInput.setTextColor(Color.WHITE);urlInput.setHintTextColor(Color.GRAY);urlInput.setHint(tr("Paste a link"));
+        urlInput.setTextSize(14);urlInput.setPadding(dp(12),0,dp(12),0);urlInput.setBackgroundColor(PANEL);
+        root.addView(urlInput,new LinearLayout.LayoutParams(-1,dp(48)));
+        LinearLayout actions=new LinearLayout(this);Button open=button(tr("Open"),true),download=button(tr("Download"),false);
+        actions.addView(open,new LinearLayout.LayoutParams(0,dp(46),1));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);p.leftMargin=dp(7);actions.addView(download,p);root.addView(actions);
+        open.setOnClickListener(v->openAddress());download.setOnClickListener(v->downloadAddress());
+        LinearLayout nav=new LinearLayout(this);Button browserTab=button(tr("Browser"),true),libraryTab=button(tr("Library"),false);
+        nav.addView(browserTab,new LinearLayout.LayoutParams(0,dp(42),1));nav.addView(libraryTab,new LinearLayout.LayoutParams(0,dp(42),1));root.addView(nav);
+        status=text(tr("Ready"),12,Color.LTGRAY);status.setPadding(0,dp(6),0,dp(6));root.addView(status);
+        pageScroll=new ScrollView(this);LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);pageScroll.addView(content);
+        browser=new WebView(this);browser.setBackgroundColor(BG);browser.getSettings().setJavaScriptEnabled(true);browser.getSettings().setDomStorageEnabled(true);browser.getSettings().setMediaPlaybackRequiresUserGesture(true);
+        browser.setWebChromeClient(new WebChromeClient());browser.setWebViewClient(new WebViewClient());
+        browser.setDownloadListener((url,ua,disp,mime,len)->startDownload(url,disp,mime));
+        content.addView(browser,new LinearLayout.LayoutParams(-1,dp(420)));
+        TextView qTitle=text(tr("Downloads"),17,CYAN);qTitle.setTypeface(null,Typeface.BOLD);qTitle.setPadding(0,dp(12),0,dp(6));content.addView(qTitle);
+        taskList=new LinearLayout(this);taskList.setOrientation(LinearLayout.VERTICAL);content.addView(taskList);
+        libraryTitle=text(tr("Library"),17,CYAN);libraryTitle.setTypeface(null,Typeface.BOLD);libraryTitle.setPadding(0,dp(12),0,dp(6));content.addView(libraryTitle);
+        fileList=new LinearLayout(this);fileList.setOrientation(LinearLayout.VERTICAL);content.addView(fileList);
+        root.addView(pageScroll,new LinearLayout.LayoutParams(-1,0,1));
+        TextView ad=text(tr("Advertisement"),10,Color.GRAY);ad.setGravity(android.view.Gravity.CENTER);ad.setBackgroundColor(Color.rgb(12,15,34));root.addView(ad,new LinearLayout.LayoutParams(-1,dp(30)));
+        setContentView(root);
+        browserTab.setOnClickListener(v->{browser.setVisibility(View.VISIBLE);pageScroll.smoothScrollTo(0,0);});
+        libraryTab.setOnClickListener(v->{refreshLibrary();pageScroll.smoothScrollTo(0,dp(600));});
+        browser.loadUrl("https://www.google.com");
     }
-
-    private void downloadAddress() {
-        String raw = urlInput.getText().toString().trim();
-        if (raw.isEmpty()) { toast("Paste a direct downloadable file URL"); return; }
-        if (!raw.matches("(?i)^https?://.*")) raw = "https://" + raw;
-        enqueueDownload(raw, null, null);
+    private void chooseLanguage(){
+        new AlertDialog.Builder(this).setTitle(tr("Choose language")).setItems(new String[]{"English","Русский","ქართული"},(d,w)->{
+            language=w==1?"ru":w==2?"ka":"en";buildUi();refreshLibrary();
+        }).show();
     }
-
-    private void enqueueDownload(String rawUrl, String disposition, String mimeType) {
-        try {
-            Uri uri = Uri.parse(rawUrl);
-            if (!("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme())) || uri.getHost() == null) {
-                toast("Unsupported URL"); return;
-            }
-            String filename = android.webkit.URLUtil.guessFileName(rawUrl, disposition, mimeType);
-            DownloadManager.Request request = new DownloadManager.Request(uri);
-            request.setTitle(filename);
-            request.setDescription("Downloading with Video Downloader");
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            request.setAllowedOverMetered(true);
-            request.setAllowedOverRoaming(false);
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
-            DownloadManager manager = (DownloadManager)getSystemService(DOWNLOAD_SERVICE);
-            manager.enqueue(request);
-            status.setText("Download started: " + filename);
-            toast("Download started");
-        } catch (Exception e) {
-            status.setText("Could not start download. The site may require sign-in or block direct downloads.");
-            toast("Download could not start");
+    private String normalized(String raw){
+        raw=raw.trim();if(raw.length()==0)return "";if(!raw.matches("(?i)^https?://.*"))raw="https://"+raw;return raw;
+    }
+    private void openAddress(){
+        String raw=normalized(urlInput.getText().toString());if(raw.isEmpty()){toast(tr("Enter a URL first"));return;}
+        try{Uri u=Uri.parse(raw);if(u.getHost()==null)throw new Exception();
+            ((InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(urlInput.getWindowToken(),0);
+            browser.loadUrl(raw);status.setText(u.getHost());
+        }catch(Exception e){toast("Invalid URL");}
+    }
+    private void downloadAddress(){String raw=normalized(urlInput.getText().toString());if(raw.isEmpty()){toast(tr("Enter a URL first"));return;}startDownload(raw,null,null);}
+    private File downloadDir(){File base=getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);return base!=null?base:new File(getFilesDir(),"Download");}
+    private String safeName(String name){name=name==null?"download":name.replaceAll("[\\/:*?\"<>|]","_").trim();if(name.isEmpty())name="download";return name.length()>100?name.substring(0,100):name;}
+    private void startDownload(String raw,String disposition,String mime){
+        final String url=raw;final String name=safeName(android.webkit.URLUtil.guessFileName(url,disposition,mime));
+        if(tasks.containsKey(url)){toast("Already in download queue");return;}
+        Task t=new Task(url,name);tasks.put(url,t);addTaskView(t);status.setText(tr("Download started"));t.start();
+    }
+    private void addTaskView(Task t){
+        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(8),dp(6),dp(8),dp(6));card.setBackgroundColor(PANEL);
+        TextView name=text(t.name,13,Color.WHITE);card.addView(name);
+        TextView state=text(tr("Waiting"),11,Color.LTGRAY);card.addView(state);
+        ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);card.addView(bar,new LinearLayout.LayoutParams(-1,dp(5)));
+        LinearLayout row=new LinearLayout(this);Button pause=button(tr("Pause"),false),cancel=button(tr("Cancel"),false);
+        row.addView(pause,new LinearLayout.LayoutParams(0,dp(38),1));row.addView(cancel,new LinearLayout.LayoutParams(0,dp(38),1));card.addView(row);taskList.addView(card,0);
+        pause.setOnClickListener(v->{if(t.done)return;if(t.paused){t.paused=false;synchronized(t){t.notifyAll();}pause.setText(tr("Pause"));}else{t.paused=true;pause.setText(tr("Resume"));}});
+        cancel.setOnClickListener(v->{t.cancelled=true;synchronized(t){t.notifyAll();}state.setText(tr("Cancel"));});
+        t.viewUpdate=(pct,msg)->main.post(()->{bar.setProgress(pct);state.setText(msg);if(t.done){pause.setEnabled(false);cancel.setText(tr("Delete"));cancel.setOnClickListener(v->{card.setVisibility(View.GONE);});}});
+    }
+    private class Task extends Thread{
+        final String url,name;volatile boolean paused=false,cancelled=false,done=false;volatile Update viewUpdate;
+        Task(String u,String n){url=u;name=n;}
+        @Override public void run(){
+            File dest=new File(downloadDir(),name);File part=new File(downloadDir(),name+".part");HttpURLConnection conn=null;
+            try{
+                if(!downloadDir().exists())downloadDir().mkdirs();
+                long offset=part.exists()?part.length():0;
+                conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(15000);conn.setReadTimeout(20000);conn.setInstanceFollowRedirects(true);conn.setRequestProperty("User-Agent","VideoDownloader/1.1");
+                if(offset>0)conn.setRequestProperty("Range","bytes="+offset+"-");
+                int code=conn.getResponseCode();
+                if(code<200||code>=300)throw new Exception("HTTP "+code);
+                if(offset>0&&code!=206){offset=0;part.delete();}
+                long total=conn.getContentLengthLong();if(total>0)total+=offset;
+                InputStream in=new BufferedInputStream(conn.getInputStream());FileOutputStream out=new FileOutputStream(part,offset>0);
+                byte[] buf=new byte[32768];long count=offset;int n;
+                while((n=in.read(buf))!=-1){
+                    synchronized(this){while(paused&&!cancelled)wait();}
+                    if(cancelled)throw new InterruptedException("Cancelled");
+                    out.write(buf,0,n);count+=n;
+                    final int pct=total>0?(int)Math.min(99,count*100/total):0;
+                    if(viewUpdate!=null)viewUpdate.set(pct,paused?tr("Paused"):tr("Downloading")+(total>0?" "+pct+"%":""));
+                    if(nextNotification<2100)postNotification(nextNotification,name,pct,false);
+                }
+                out.flush();out.close();in.close();
+                if(cancelled){part.delete();throw new InterruptedException("Cancelled");}
+                if(dest.exists())dest=new File(downloadDir(),System.currentTimeMillis()+"_"+name);
+                if(!part.renameTo(dest))throw new Exception("Could not save file");
+                final File saved=dest;done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
+                postNotification(nextNotification++,name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
+            }catch(InterruptedException e){part.delete();done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,tr("Cancel"));}
+            catch(Exception e){done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+e.getMessage());main.post(()->status.setText(tr("Download failed")));}
+            finally{if(conn!=null)conn.disconnect();}
         }
     }
-
-    private int dp(int value) { return (int)(value * getResources().getDisplayMetrics().density + 0.5f); }
-    private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
-
-    @Override public void onBackPressed() {
-        if (browser != null && browser.canGoBack()) browser.goBack();
-        else super.onBackPressed();
+    private interface Update{void set(int pct,String msg);}
+    private void refreshLibrary(){
+        if(fileList==null)return;fileList.removeAllViews();File[] fs=downloadDir().listFiles();
+        if(fs==null||fs.length==0){fileList.addView(text(tr("No downloaded files yet"),12,Color.LTGRAY));return;}
+        for(File f:fs){if(!f.isFile()||f.getName().endsWith(".part"))continue;
+            LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(8),dp(5),dp(8),dp(5));card.setBackgroundColor(PANEL);
+            card.addView(text(f.getName(),13,Color.WHITE));card.addView(text(android.text.format.Formatter.formatFileSize(this,f.length()),11,Color.LTGRAY));
+            LinearLayout row=new LinearLayout(this);Button play=button(tr("Play"),true),share=button(tr("Share"),false),del=button(tr("Delete"),false);
+            row.addView(play,new LinearLayout.LayoutParams(0,dp(38),1));row.addView(share,new LinearLayout.LayoutParams(0,dp(38),1));row.addView(del,new LinearLayout.LayoutParams(0,dp(38),1));card.addView(row);fileList.addView(card);
+            play.setOnClickListener(v->openFile(f));share.setOnClickListener(v->shareFile(f));del.setOnClickListener(v->{if(f.delete()){refreshLibrary();toast(tr("Delete"));}});
+        }
     }
-
-    @Override protected void onDestroy() {
-        if (browser != null) browser.destroy();
-        super.onDestroy();
+    private void openFile(File f){
+        try{Uri u=FileProvider.getUriForFile(this,"com.videodownloader.app.fileprovider",f);Intent i=new Intent(Intent.ACTION_VIEW);i.setDataAndType(u,getContentResolver().getType(u));i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(i);}
+        catch(Exception e){shareFile(f);}
     }
+    private void shareFile(File f){try{Uri u=FileProvider.getUriForFile(this,"com.videodownloader.app.fileprovider",f);Intent i=new Intent(Intent.ACTION_SEND);i.setType("*/*");i.putExtra(Intent.EXTRA_STREAM,u);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(i,tr("Share")));}catch(Exception e){toast(e.getMessage());}}
+    private void createNotificationChannel(){if(Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);nm.createNotificationChannel(new NotificationChannel("downloads","Downloads",NotificationManager.IMPORTANCE_LOW));}}
+    private void postNotification(int id,String name,int pct,boolean done){
+        try{Notification n=new NotificationCompat.Builder(this,"downloads").setSmallIcon(android.R.drawable.stat_sys_download_done).setContentTitle(name).setContentText(done?tr("Download complete"):tr("Downloading")+" "+pct+"%").setProgress(100,pct,!done).setOngoing(!done).build();((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(id,n);}catch(Exception ignored){}
+    }
+    private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
+    @Override public void onBackPressed(){if(browser!=null&&browser.canGoBack())browser.goBack();else super.onBackPressed();}
+    @Override protected void onDestroy(){for(Task t:tasks.values()){t.cancelled=true;synchronized(t){t.notifyAll();}}if(browser!=null)browser.destroy();super.onDestroy();}
 }
