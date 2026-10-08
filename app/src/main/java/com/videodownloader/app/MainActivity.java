@@ -276,14 +276,15 @@ public class MainActivity extends Activity {
                 muxer=new MediaMuxer(output.getAbsolutePath(),MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
                 int outputTrack=muxer.addTrack(audioFormat);muxer.start();started=true;extractor.selectTrack(audioTrack);
                 ByteBuffer buffer=ByteBuffer.allocate(1024*1024);
-                MediaCodec.BufferInfo info=new MediaCodec.BufferInfo();
+                MediaCodec.BufferInfo info=new MediaCodec.BufferInfo();int samples=0;
                 while(true){
                     buffer.clear();int size=extractor.readSampleData(buffer,0);if(size<0)break;
                     info.offset=0;info.size=size;info.presentationTimeUs=extractor.getSampleTime();info.flags=extractor.getSampleFlags();
-                    muxer.writeSampleData(outputTrack,buffer,info);extractor.advance();
+                    muxer.writeSampleData(outputTrack,buffer,info);samples++;extractor.advance();
                 }
-                if(output.length()==0)throw new Exception("No audio samples");
-                File done=output;main.post(()->{action.setEnabled(true);action.setText(tr("Extract audio"));toast(tr("Audio saved"));refreshLibrary();});
+                muxer.stop();started=false;
+                if(samples==0||!output.exists()||output.length()==0)throw new Exception("No audio samples");
+                main.post(()->{action.setEnabled(true);action.setText(tr("Extract audio"));toast(tr("Audio saved"));refreshLibrary();});
             }catch(Exception e){
                 if(output!=null)output.delete();
                 String error=e.getMessage()==null?"":e.getMessage();
