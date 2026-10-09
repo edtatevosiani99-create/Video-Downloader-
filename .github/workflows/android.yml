@@ -71,7 +71,7 @@ jobs:
               s = s.replace(anchor, "\n".join(handler_lines) + "\n" + anchor, 1)
           p.write_text(s)
           PY
-          gradle publishToMavenLocal
+          gradle :library:publishMavenPublicationToMavenLocal
       - name: Build debug APK with refreshed extractor
         run: gradle --refresh-dependencies assembleDebug
       - name: Upload APK artifact
