@@ -137,8 +137,8 @@ public class MainActivity extends Activity {
         root.addView(pageScroll,new LinearLayout.LayoutParams(-1,0,1));
         TextView ad=text(tr("Advertisement"),10,Color.GRAY);ad.setGravity(android.view.Gravity.CENTER);ad.setBackgroundColor(Color.rgb(12,15,34));root.addView(ad,new LinearLayout.LayoutParams(-1,dp(30)));
         setContentView(root);
-        browserTab.setOnClickListener(v->{browser.setVisibility(View.VISIBLE);pageScroll.smoothScrollTo(0,0);});
-        libraryTab.setOnClickListener(v->{refreshLibrary();pageScroll.smoothScrollTo(0,dp(600));});
+        browserTab.setOnClickListener(v->{boolean show=browser.getVisibility()!=View.VISIBLE;browser.setVisibility(show?View.VISIBLE:View.GONE);qTitle.setVisibility(show?View.VISIBLE:View.GONE);taskList.setVisibility(show?View.VISIBLE:View.GONE);if(show){if(browser.getUrl()==null||browser.getUrl().isEmpty()||"about:blank".equals(browser.getUrl()))browser.loadUrl("https://www.google.com");pageScroll.smoothScrollTo(0,0);}});
+        libraryTab.setOnClickListener(v->{boolean show=fileList.getVisibility()!=View.VISIBLE;libraryTitle.setVisibility(show?View.VISIBLE:View.GONE);fileList.setVisibility(show?View.VISIBLE:View.GONE);if(show){refreshLibrary();pageScroll.post(()->pageScroll.smoothScrollTo(0,libraryTitle.getTop()));}});
         browser.loadUrl("https://www.google.com");
     }
     private void chooseLanguage(){
