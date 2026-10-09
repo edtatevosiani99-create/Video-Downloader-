@@ -68,7 +68,7 @@ jobs:
               anchor = "            elif key == '_audio_format':"
               if anchor not in s:
                   raise SystemExit("Could not patch extractor-args parser")
-              s = s.replace(anchor, "\\n".join(handler_lines) + "\\n" + anchor, 1)
+              s = s.replace(anchor, "\n".join(handler_lines) + "\n" + anchor, 1)
           p.write_text(s)
           PY
           gradle publishToMavenLocal
