@@ -30,6 +30,43 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/ffmpegkit-maintained/yt-dlp-android.git /tmp/yt-dlp-android
           cd /tmp/yt-dlp-android
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("library/src/main/python/ytdlp_runner.py")
+          s = p.read_text()
+          # The Java API accepts CLI-style flags, but the upstream Python bridge
+          # currently ignores several yt-dlp flags unless they are mapped here.
+          additions = {
+              "--extractor-args": "('_extractor_args', True)",
+              "--socket-timeout": "('socket_timeout', True)",
+              "--retries": "('retries', True)",
+              "--fragment-retries": "('fragment_retries', True)",
+              "--extractor-retries": "('extractor_retries', True)",
+              "--verbose": "('verbose', False)",
+          }
+          anchor = "    '--proxy':"
+          for flag, mapping in additions.items():
+              entry = f"    '{flag}': {mapping},\\n"
+              if f"'{flag}':" not in s:
+                  if anchor not in s:
+                      raise SystemExit(f"Could not patch yt-dlp flag map: {flag}")
+                  s = s.replace(anchor, entry + anchor, 1)
+          if "elif key == '_extractor_args':" not in s:
+              anchor = "            elif key == '_audio_format':"
+              handler = """            elif key == '_extractor_args':
+                  section, sep, raw_args = val.partition(':')
+                  if sep and section:
+                      section_args = opts.setdefault('extractor_args', {}).setdefault(section, {})
+                      for item in raw_args.split(','):
+                          arg_name, equals, arg_value = item.partition('=')
+                          if equals and arg_name and arg_value:
+                              section_args.setdefault(arg_name, []).extend(arg_value.split('+'))
+          """
+              if anchor not in s:
+                  raise SystemExit("Could not patch extractor-args parser")
+              s = s.replace(anchor, handler + anchor, 1)
+          p.write_text(s)
+          PY
           gradle publishToMavenLocal
       - name: Build debug APK with refreshed extractor
         run: gradle --refresh-dependencies assembleDebug
