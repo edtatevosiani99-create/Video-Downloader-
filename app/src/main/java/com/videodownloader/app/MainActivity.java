@@ -186,6 +186,64 @@ public class MainActivity extends Activity {
         addTaskView(t);status.setText(tr("Download started"));t.start();
     }
     private File downloadDir(){File base=getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);return base!=null?base:new File(getFilesDir(),"Download");}
+    // Copy completed media into Android's shared media library so music/video players
+    // and file managers can discover it, while keeping the app's own library intact.
+    private void publishToMediaLibrary(File source){
+        if(source==null||!source.isFile()||source.length()==0)return;
+        android.net.Uri inserted=null;
+        try{
+            String ext=android.webkit.MimeTypeMap.getFileExtensionFromUrl(source.getName()).toLowerCase(Locale.ROOT);
+            String mime=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+            if(mime==null){
+                if(ext.equals("ts"))mime="video/mp2t";
+                else if(ext.equals("mkv"))mime="video/x-matroska";
+                else if(ext.equals("flac"))mime="audio/flac";
+                else mime="application/octet-stream";
+            }
+            boolean audio=mime.startsWith("audio/");
+            boolean video=mime.startsWith("video/");
+            if(Build.VERSION.SDK_INT>=29){
+                android.net.Uri collection=audio?android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI:
+                    video?android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI:
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+                String relative=audio?android.os.Environment.DIRECTORY_MUSIC+"/Video Downloader":
+                    video?android.os.Environment.DIRECTORY_MOVIES+"/Video Downloader":
+                    android.os.Environment.DIRECTORY_DOWNLOADS+"/Video Downloader";
+                android.content.ContentValues values=new android.content.ContentValues();
+                String displayName=source.getName();
+                values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME,displayName);
+                values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE,mime);
+                values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,relative);
+                values.put(android.provider.MediaStore.MediaColumns.IS_PENDING,1);
+                inserted=getContentResolver().insert(collection,values);
+                if(inserted==null)throw new java.io.IOException("Android could not create a public media entry");
+                try(java.io.InputStream in=new java.io.FileInputStream(source);
+                    java.io.OutputStream out=getContentResolver().openOutputStream(inserted,"w")){
+                    if(out==null)throw new java.io.IOException("Could not open public media file");
+                    byte[] buffer=new byte[32768];int count;
+                    while((count=in.read(buffer))!=-1)out.write(buffer,0,count);
+                    out.flush();
+                }
+                android.content.ContentValues ready=new android.content.ContentValues();
+                ready.put(android.provider.MediaStore.MediaColumns.IS_PENDING,0);
+                getContentResolver().update(inserted,ready,null,null);
+            }else{
+                java.io.File publicDir=new java.io.File(android.os.Environment.getExternalStoragePublicDirectory(
+                    audio?android.os.Environment.DIRECTORY_MUSIC:video?android.os.Environment.DIRECTORY_MOVIES:android.os.Environment.DIRECTORY_DOWNLOADS),
+                    "Video Downloader");
+                if(!publicDir.exists()&&!publicDir.mkdirs())throw new java.io.IOException("Could not create public media folder");
+                java.io.File dest=new java.io.File(publicDir,source.getName());
+                if(dest.exists())dest=new java.io.File(publicDir,System.currentTimeMillis()+"_"+source.getName());
+                try(java.io.InputStream in=new java.io.FileInputStream(source);java.io.OutputStream out=new java.io.FileOutputStream(dest)){
+                    byte[] buffer=new byte[32768];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);out.flush();
+                }
+                android.media.MediaScannerConnection.scanFile(this,new String[]{dest.getAbsolutePath()},new String[]{mime},null);
+            }
+        }catch(Exception e){
+            if(inserted!=null)try{getContentResolver().delete(inserted,null,null);}catch(Exception ignored){}
+            android.util.Log.w("VideoDownloader","Could not publish media to phone library: "+e.getMessage());
+        }
+    }
     private String safeName(String name){name=name==null?"download":name.replaceAll("[\\/:*?\"<>|]","_").trim();if(name.isEmpty())name="download";return name.length()>100?name.substring(0,100):name;}
     private void startDownload(String raw,String disposition,String mime){ startDownload(raw,disposition,mime,null,null); }
     private void startDownload(String raw,String disposition,String mime,String userAgent){ startDownload(raw,disposition,mime,null,userAgent); }
@@ -406,7 +464,7 @@ public class MainActivity extends Activity {
                 if(cancelled){part.delete();throw new InterruptedException("Cancelled");}
                 if(dest.exists())dest=new File(downloadDir(),System.currentTimeMillis()+"_"+name);
                 if(!part.renameTo(dest))throw new Exception("Could not save file");
-                final File saved=dest;done=true;tasks.remove(url);persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
+                final File saved=dest;publishToMediaLibrary(saved);done=true;tasks.remove(url);persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
                 postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();if(audioOnly&&!saved.getName().toLowerCase(Locale.ROOT).endsWith(".mp3"))convertAudioToMp3(saved,null,192);});
             }catch(InterruptedException e){if(!preservePartial){part.delete();persistPending(url,name,true);}done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,preservePartial?tr("Waiting"):tr("Cancel"));}
             catch(Exception e){done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);String error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();if(error.length()>900)error=error.substring(error.length()-900);final String visibleError=error;if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+visibleError);main.post(()->{status.setText(tr("Download failed")+": "+visibleError);Toast.makeText(MainActivity.this,"Download failed: "+visibleError,Toast.LENGTH_LONG).show();});}
@@ -570,6 +628,7 @@ public class MainActivity extends Activity {
                 main.post(()->status.setText("Converting audio to MP3…"));
                 convertAudioToMp3(completedFile,null,192);
             }else{
+                publishToMediaLibrary(completedFile);
                 main.post(()->{status.setText(tr("Download complete")+": "+completedFile.getName());refreshLibrary();});
             }
         }
@@ -613,7 +672,7 @@ public class MainActivity extends Activity {
             if(part.length()==0)throw new Exception("No media data received");
             if(dest.exists())dest=new File(downloadDir(),System.currentTimeMillis()+"_"+name);
             if(!part.renameTo(dest))throw new Exception("Could not save HLS stream");
-            File saved=dest;done=true;tasks.remove(url);persistPending(url,name,true);
+            File saved=dest;publishToMediaLibrary(saved);done=true;tasks.remove(url);persistPending(url,name,true);
             if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
             postNotification(2000+(Math.abs(url.hashCode())%500),name,100,true);
             main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();});
@@ -719,7 +778,7 @@ public class MainActivity extends Activity {
                 if(lame==null)throw new Exception("No decoded audio samples");
                 int tail=lame.flush(encoded);if(tail>0)out.write(encoded,0,tail);out.flush();out.close();out=null;
                 if(!output.exists()||output.length()==0)throw new Exception("MP3 output is empty");
-                File saved=output;
+                File saved=output;publishToMediaLibrary(saved);
                 main.post(()->{if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}toast("MP3 saved: "+saved.getName());refreshLibrary();});
             }catch(Exception e){
                 if(output!=null)output.delete();
