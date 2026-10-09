@@ -47,6 +47,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.core.content.FileProvider;
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -109,6 +112,9 @@ public class MainActivity extends Activity {
 
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+0.5f);}
     private TextView text(String s,int size,int color){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(color);return t;}
+    private String languageFlag(){
+        switch(language){case "ru":return "🇷🇺";case "ka":return "🇬🇪";case "es":return "🇪🇸";case "de":return "🇩🇪";case "fr":return "🇫🇷";case "tr":return "🇹🇷";default:return "🇬🇧";}
+    }
     private Button button(String s,boolean primary){
         Button b=new Button(this); b.setText(s); b.setTextColor(Color.WHITE); b.setTextSize(13); b.setAllCaps(false);
         b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
@@ -116,7 +122,14 @@ public class MainActivity extends Activity {
         return b;
     }
     private void buildUi(){
-        root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);root.setPadding(dp(14),dp(20),dp(14),0);
+        root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);root.setPadding(dp(14),dp(8),dp(14),0);
+        // Android 15 edge-to-edge can place app content beneath the status/navigation bars.
+        // Apply the actual system-bar insets so the header and bottom ad stay fully visible.
+        ViewCompat.setOnApplyWindowInsetsListener(root,(view,windowInsets)->{
+            Insets bars=windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            view.setPadding(dp(14),bars.top+dp(6),dp(14),bars.bottom);
+            return windowInsets;
+        });
         LinearLayout top=new LinearLayout(this);top.setGravity(android.view.Gravity.CENTER_VERTICAL);
         top.setPadding(dp(2),0,0,0);
         ImageView brandMark=new ImageView(this);
@@ -140,7 +153,7 @@ public class MainActivity extends Activity {
         brandDownloader.setText(downloaderStyle);
         brandText.addView(brandVideo);brandText.addView(brandDownloader);
         top.addView(brandText,brandTextParams);
-        Button lang=button("文",false);top.addView(lang,new LinearLayout.LayoutParams(dp(44),dp(44)));lang.setOnClickListener(v->chooseLanguage());root.addView(top);
+        Button lang=button(languageFlag(),false);lang.setTextSize(22);lang.setPadding(0,0,0,0);top.addView(lang,new LinearLayout.LayoutParams(dp(48),dp(44)));lang.setOnClickListener(v->chooseLanguage());root.addView(top);
         urlInput=new EditText(this);urlInput.setSingleLine(true);urlInput.setTextColor(Color.WHITE);urlInput.setHintTextColor(Color.GRAY);urlInput.setHint(tr("Paste a link"));
         urlInput.setTextSize(14);urlInput.setPadding(dp(12),0,dp(12),0);urlInput.setBackgroundColor(PANEL);
         root.addView(urlInput,new LinearLayout.LayoutParams(-1,dp(48)));
