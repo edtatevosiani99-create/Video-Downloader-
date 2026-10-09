@@ -71,7 +71,11 @@ jobs:
               s = s.replace(anchor, "\n".join(handler_lines) + "\n" + anchor, 1)
           p.write_text(s)
           PY
-          gradle :library:publishMavenPublicationToMavenLocal
+          gradle :library:assembleRelease :library:generatePomFileForMavenPublication
+          m2="$HOME/.m2/repository/dev/ffmpegkit-maintained/yt-dlp-android/2.0.2"
+          mkdir -p "$m2"
+          cp library/build/outputs/aar/yt-dlp-android-release.aar "$m2/yt-dlp-android-2.0.2.aar"
+          cp library/build/publications/maven/pom-default.xml "$m2/yt-dlp-android-2.0.2.pom"
       - name: Build debug APK with refreshed extractor
         run: gradle --refresh-dependencies assembleDebug
       - name: Upload APK artifact
