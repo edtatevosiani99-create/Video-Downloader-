@@ -422,87 +422,120 @@ public class MainActivity extends Activity {
 
         private void runYtDlp()throws Exception{
             long startedAt=System.currentTimeMillis();
-            if(viewUpdate!=null)viewUpdate.set(0,"Preparing YouTube downloader…");
-            synchronized(MainActivity.class){if(!ytDlpInitialized){try{YtDlp.init(getApplicationContext());ytDlpInitialized=true;}catch(YtDlpException e){throw new Exception("Downloader initialization failed: "+e.getMessage(),e);}}}
-            String output=new File(downloadDir(),"%(title)s.%(ext)s").getAbsolutePath();
-            YtDlpRequest request=new YtDlpRequest(url).setOutputTemplate(output)
-                    .addOption("--no-playlist").addOption("--no-warnings")
-                    .addOption("--verbose").addOption("--user-agent",userAgent)
-                    .addOption("--retries","3").addOption("--fragment-retries","3");
-            String hostForExtractor=Uri.parse(url).getHost();
-            if(hostForExtractor!=null){
-                String extractorHost=hostForExtractor.toLowerCase(Locale.ROOT);
-                if(extractorHost.equals("youtu.be")||extractorHost.endsWith(".youtu.be")||
-                   extractorHost.equals("youtube.com")||extractorHost.endsWith(".youtube.com")||
-                   extractorHost.equals("youtube-nocookie.com")||extractorHost.endsWith(".youtube-nocookie.com")){
-                    // Use YouTube's Android player client on root and mobile/music subdomains.
-                    request.addOption("--extractor-args","youtube:player_client=android");
+            if(viewUpdate!=null)viewUpdate.set(0,"Preparing media extractor…");
+            synchronized(MainActivity.class){
+                if(!ytDlpInitialized){
+                    try{YtDlp.init(getApplicationContext());ytDlpInitialized=true;}
+                    catch(YtDlpException e){throw new Exception("Downloader initialization failed: "+e.getMessage(),e);}
                 }
             }
-            if(audioOnly){request.addOption("-f","bestaudio/best");}
-            else{request.addOption("-f","best[height<=720]/best");}
-            // Reuse cookies from the app's WebView so downloads can access media
-            // that requires the user's existing site session. Store only in app-private cache.
-            try {
-                File cookieFile=new File(getCacheDir(),"ytdlp-cookies.txt");
+
+            // Give every attempt its own output prefix so existing files never make a
+            // successful extraction look like a failed download.
+            String output=new File(downloadDir(),"vd_"+startedAt+"_%(title)s_%(id)s.%(ext)s").getAbsolutePath();
+            String hostForExtractor=Uri.parse(url).getHost();
+            String normalizedHost=hostForExtractor==null?"":hostForExtractor.toLowerCase(Locale.ROOT);
+            boolean youtube=normalizedHost.equals("youtu.be")||normalizedHost.endsWith(".youtu.be")||
+                normalizedHost.equals("youtube.com")||normalizedHost.endsWith(".youtube.com")||
+                normalizedHost.equals("youtube-nocookie.com")||normalizedHost.endsWith(".youtube-nocookie.com");
+            String[] clients=youtube?new String[]{"android","web_safari",""}:new String[]{""};
+
+            // Export only cookies available to this app's embedded browser. No passwords
+            // or account credentials are collected by the app.
+            File cookieFile=new File(getCacheDir(),"ytdlp-cookies.txt");
+            boolean haveCookies=false;
+            try{
                 String cookieHeader=CookieManager.getInstance().getCookie(url);
-                if(cookieHeader!=null&&!cookieHeader.trim().isEmpty()){
-                    String host=Uri.parse(url).getHost();
-                    if(host!=null){
-                        host=host.toLowerCase(Locale.ROOT);
-                        String cookieDomain=host;
-                        boolean subdomains=false;
-                        if(host.equals("youtube.com")||host.endsWith(".youtube.com")){cookieDomain=".youtube.com";subdomains=true;}
-                        else if(host.equals("facebook.com")||host.endsWith(".facebook.com")){cookieDomain=".facebook.com";subdomains=true;}
-                        else if(host.equals("fb.watch")||host.endsWith(".fb.watch")){cookieDomain=".fb.watch";subdomains=true;}
-                        StringBuilder netscape=new StringBuilder("# Netscape HTTP Cookie File\n");
-                        for(String item:cookieHeader.split(";\\s*")){
-                            int eq=item.indexOf('=');
-                            if(eq<=0)continue;
-                            String cookieName=item.substring(0,eq).trim();
-                            String cookieValue=item.substring(eq+1).trim();
-                            if(cookieName.isEmpty())continue;
-                            netscape.append(cookieDomain).append("\t").append(subdomains?"TRUE":"FALSE")
-                                .append("\t/\t").append(url.toLowerCase(Locale.ROOT).startsWith("https://")?"TRUE":"FALSE")
-                                .append("\t0\t").append(cookieName).append("\t").append(cookieValue).append("\n");
-                        }
-                        if(netscape.length()> "# Netscape HTTP Cookie File\n".length()){
-                            try(FileOutputStream cookieOut=new FileOutputStream(cookieFile,false)){
-                                cookieOut.write(netscape.toString().getBytes("UTF-8"));
-                            }
-                            request.addOption("--cookies",cookieFile.getAbsolutePath());
-                        }else if(cookieFile.exists())cookieFile.delete();
+                if(cookieHeader!=null&&!cookieHeader.trim().isEmpty()&&hostForExtractor!=null){
+                    String host=normalizedHost;
+                    String cookieDomain=host;
+                    boolean subdomains=false;
+                    if(host.equals("youtube.com")||host.endsWith(".youtube.com")){cookieDomain=".youtube.com";subdomains=true;}
+                    else if(host.equals("facebook.com")||host.endsWith(".facebook.com")){cookieDomain=".facebook.com";subdomains=true;}
+                    else if(host.equals("fb.watch")||host.endsWith(".fb.watch")){cookieDomain=".fb.watch";subdomains=true;}
+                    StringBuilder netscape=new StringBuilder("# Netscape HTTP Cookie File\n");
+                    for(String item:cookieHeader.split(";\\s*")){
+                        int eq=item.indexOf('=');
+                        if(eq<=0)continue;
+                        String cookieName=item.substring(0,eq).trim();
+                        String cookieValue=item.substring(eq+1).trim();
+                        if(cookieName.isEmpty()||cookieName.indexOf('\n')>=0||cookieValue.indexOf('\n')>=0)continue;
+                        netscape.append(cookieDomain).append("\t").append(subdomains?"TRUE":"FALSE")
+                            .append("\t/\t").append(url.toLowerCase(Locale.ROOT).startsWith("https://")?"TRUE":"FALSE")
+                            .append("\t0\t").append(cookieName).append("\t").append(cookieValue).append("\n");
                     }
-                }else if(cookieFile.exists())cookieFile.delete();
-            } catch(Exception cookieError) {
-                // Downloads of public media should still proceed if no browser cookies exist.
+                    if(netscape.length()> "# Netscape HTTP Cookie File\n".length()){
+                        try(FileOutputStream cookieOut=new FileOutputStream(cookieFile,false)){
+                            cookieOut.write(netscape.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        }
+                        haveCookies=true;
+                    }
+                }
+            }catch(Exception ignored){
+                // Public videos should still be attempted when no browser cookies exist.
             }
-            YtDlpResponse response=YtDlp.execute(request,new DownloadProgressCallback(){
+            if(!haveCookies&&cookieFile.exists())cookieFile.delete();
+
+            DownloadProgressCallback callback=new DownloadProgressCallback(){
                 @Override public void onProgressUpdate(float progress,long etaInSeconds,String line){
                     final int pct=(int)Math.max(0,Math.min(99,progress));
                     final String detail=tr("Downloading")+" "+pct+"%"+(etaInSeconds>0?" · ETA "+etaInSeconds+"s":"");
                     if(viewUpdate!=null)viewUpdate.set(pct,detail);
                     postNotification(2000+(Math.abs(url.hashCode())%500),name,pct,false);
                 }
-            });
-            if(response==null)throw new Exception("Downloader returned no result. Check your internet connection and try again.");
-            if(!response.isSuccess()){
-                String detail=response.getErrorOutput();
-                if(detail==null||detail.trim().isEmpty())detail=response.getOutput();
-                if(detail==null||detail.trim().isEmpty())detail="yt-dlp exit code "+response.getExitCode();
-                detail=detail.replaceAll("(?m)^.*(WARNING:|DEBUG:).*$","").trim();
-                if(detail.length()>900)detail=detail.substring(detail.length()-900);
-                throw new Exception("Source download failed: "+detail);
+            };
+
+            YtDlpResponse response=null;
+            String lastDetail="";
+            for(String client:clients){
+                if(cancelled)throw new InterruptedException("Cancelled");
+                YtDlpRequest request=new YtDlpRequest(url).setOutputTemplate(output)
+                    .addOption("--no-playlist")
+                    .addOption("--verbose")
+                    .addOption("--socket-timeout","20")
+                    .addOption("--retries","5")
+                    .addOption("--fragment-retries","5")
+                    .addOption("--extractor-retries","3")
+                    .addOption("--user-agent",userAgent);
+                if(!client.isEmpty())request.addOption("--extractor-args","youtube:player_client="+client);
+                if(haveCookies)request.addOption("--cookies",cookieFile.getAbsolutePath());
+                if(audioOnly)request.addOption("-f","bestaudio/best");
+                else request.addOption("-f","best[height<=720]/best");
+
+                response=YtDlp.execute(request,callback);
+                if(response!=null&&response.isSuccess())break;
+                if(response==null){
+                    lastDetail="Downloader returned no result. Check the internet connection and try again.";
+                }else{
+                    lastDetail=response.getErrorOutput();
+                    if(lastDetail==null||lastDetail.trim().isEmpty())lastDetail=response.getOutput();
+                    if(lastDetail==null||lastDetail.trim().isEmpty())lastDetail="yt-dlp exit code "+response.getExitCode();
+                    lastDetail=lastDetail.replaceAll("(?m)^.*(?:WARNING:|DEBUG:).*$","").trim();
+                    if(lastDetail.length()>900)lastDetail=lastDetail.substring(lastDetail.length()-900);
+                }
+                // Retry public YouTube extraction with another supported player client;
+                // do not loop on other sites or on a user-cancelled task.
+                if(!youtube)break;
+                if(viewUpdate!=null)viewUpdate.set(0,"Retrying YouTube extraction…");
             }
+
+            if(response==null)throw new Exception(lastDetail.isEmpty()?"Downloader returned no result. Check your internet connection and try again.":lastDetail);
+            if(!response.isSuccess()){
+                if(lastDetail.toLowerCase(Locale.ROOT).contains("403")||lastDetail.toLowerCase(Locale.ROOT).contains("forbidden")){
+                    throw new Exception("The source returned HTTP 403 after retrying available YouTube clients. The platform may require a current browser session or may block this network client. Private, removed, age/login-restricted or DRM-protected media cannot be downloaded.");
+                }
+                throw new Exception("Source download failed: "+(lastDetail.isEmpty()?"yt-dlp exit code "+response.getExitCode():lastDetail));
+            }
+
             File[] files=downloadDir().listFiles();
             File saved=null;
             if(files!=null)for(File f:files){
                 String n=f.getName().toLowerCase(Locale.ROOT);
-                if(f.isFile()&&f.lastModified()>=startedAt-2000&&!n.endsWith(".part")&&!n.endsWith(".ytdl")&&!n.equals(name.toLowerCase(Locale.ROOT))){
+                if(f.isFile()&&f.lastModified()>=startedAt-2000&&!n.endsWith(".part")&&!n.endsWith(".ytdl")&&!n.endsWith(".temp")&&!n.equals(name.toLowerCase(Locale.ROOT))){
                     if(saved==null||f.lastModified()>saved.lastModified())saved=f;
                 }
             }
-            if(saved==null)throw new Exception("Download finished but the output file was not found.");
+            if(saved==null)throw new Exception("The extractor reported success, but no new output file was found. Try again and check available storage.");
             done=true;tasks.remove(url);persistPending(url,name,true);
             if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
             postNotification(2000+(Math.abs(url.hashCode())%500),saved.getName(),100,true);
