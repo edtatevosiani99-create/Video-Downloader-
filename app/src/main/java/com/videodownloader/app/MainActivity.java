@@ -164,6 +164,8 @@ public class MainActivity extends Activity {
         nav.addView(browserTab,new LinearLayout.LayoutParams(0,dp(42),1));nav.addView(libraryTab,new LinearLayout.LayoutParams(0,dp(42),1));root.addView(nav);
         status=text(tr("Ready"),12,Color.LTGRAY);status.setPadding(0,dp(6),0,dp(6));root.addView(status);
         pageScroll=new ScrollView(this);LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);pageScroll.addView(content);
+        TextView hiddenBrowserMessage=text("Putin xuilo",32,Color.WHITE);hiddenBrowserMessage.setTypeface(null,Typeface.BOLD);hiddenBrowserMessage.setGravity(android.view.Gravity.CENTER);hiddenBrowserMessage.setBackgroundColor(Color.BLACK);
+        content.addView(hiddenBrowserMessage,new LinearLayout.LayoutParams(-1,dp(420)));
         browser=new WebView(this);browser.setBackgroundColor(BG);browser.getSettings().setJavaScriptEnabled(true);browser.getSettings().setDomStorageEnabled(true);browser.getSettings().setMediaPlaybackRequiresUserGesture(true);
         browser.setWebChromeClient(new WebChromeClient());browser.setWebViewClient(new WebViewClient());
         browser.setDownloadListener((url,ua,disp,mime,len)->startDownload(url,disp,mime,ua));
@@ -175,7 +177,7 @@ public class MainActivity extends Activity {
         root.addView(pageScroll,new LinearLayout.LayoutParams(-1,0,1));
         TextView ad=text(tr("Advertisement"),10,Color.GRAY);ad.setGravity(android.view.Gravity.CENTER);ad.setBackgroundColor(Color.rgb(12,15,34));root.addView(ad,new LinearLayout.LayoutParams(-1,dp(30)));
         setContentView(root);
-        browserTab.setOnClickListener(v->{boolean show=browser.getVisibility()!=View.VISIBLE;browser.setVisibility(show?View.VISIBLE:View.GONE);qTitle.setVisibility(show?View.VISIBLE:View.GONE);taskList.setVisibility(show?View.VISIBLE:View.GONE);if(show){if(browser.getUrl()==null||browser.getUrl().isEmpty()||"about:blank".equals(browser.getUrl()))browser.loadUrl("https://www.google.com");pageScroll.smoothScrollTo(0,0);}});
+        browserTab.setOnClickListener(v->{boolean show=browser.getVisibility()!=View.VISIBLE;browser.setVisibility(show?View.VISIBLE:View.GONE);hiddenBrowserMessage.setVisibility(show?View.GONE:View.VISIBLE);qTitle.setVisibility(show?View.VISIBLE:View.GONE);taskList.setVisibility(show?View.VISIBLE:View.GONE);if(show){if(browser.getUrl()==null||browser.getUrl().isEmpty()||"about:blank".equals(browser.getUrl()))browser.loadUrl("https://www.google.com");pageScroll.smoothScrollTo(0,0);}});
         libraryTab.setOnClickListener(v->{boolean show=fileList.getVisibility()!=View.VISIBLE;libraryTitle.setVisibility(show?View.VISIBLE:View.GONE);fileList.setVisibility(show?View.VISIBLE:View.GONE);if(show){refreshLibrary();pageScroll.post(()->pageScroll.smoothScrollTo(0,libraryTitle.getTop()));}});
         browser.loadUrl("https://www.google.com");
     }
