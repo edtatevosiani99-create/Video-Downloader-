@@ -41,6 +41,7 @@ jobs:
               "--retries": "('_retries', True)",
               "--fragment-retries": "('_fragment_retries', True)",
               "--extractor-retries": "('_extractor_retries', True)",
+              "--referer": "('_referer', True)",
               "--verbose": "('verbose', False)",
           }
           anchor = "    '--proxy':"
@@ -55,6 +56,8 @@ jobs:
               "                opts['socket_timeout'] = float(val)",
               "            elif key in ('_retries', '_fragment_retries', '_extractor_retries'):",
               "                opts[key[1:]] = int(val)",
+              "            elif key == '_referer':",
+              "                opts['referer'] = val",
               "            elif key == '_extractor_args':",
               "                section, sep, raw_args = val.partition(':')",
               "                if sep and section:",
