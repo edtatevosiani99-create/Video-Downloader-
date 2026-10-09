@@ -463,8 +463,8 @@ public class MainActivity extends Activity {
                             String cookieValue=item.substring(eq+1).trim();
                             if(cookieName.isEmpty())continue;
                             netscape.append(cookieDomain).append("\t").append(subdomains?"TRUE":"FALSE")
-                                .append("\\t/\\t").append(url.toLowerCase(Locale.ROOT).startsWith("https://")?"TRUE":"FALSE")
-                                .append("\\t0\\t").append(cookieName).append("\\t").append(cookieValue).append("\\n");
+                                .append("\t/\t").append(url.toLowerCase(Locale.ROOT).startsWith("https://")?"TRUE":"FALSE")
+                                .append("\t0\t").append(cookieName).append("\t").append(cookieValue).append("\n");
                         }
                         if(netscape.length()> "# Netscape HTTP Cookie File\n".length()){
                             try(FileOutputStream cookieOut=new FileOutputStream(cookieFile,false)){
