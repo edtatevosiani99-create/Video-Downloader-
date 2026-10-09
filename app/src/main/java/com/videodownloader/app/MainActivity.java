@@ -580,10 +580,21 @@ public class MainActivity extends Activity {
                     .addOption("--extractor-retries","3")
                     .addOption("--user-agent",userAgent);
                 if(!client.isEmpty())request.addOption("--extractor-args","youtube:player_client="+client);
-                if(normalizedHost.equals("facebook.com")||normalizedHost.endsWith(".facebook.com")||normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch"))request.addOption("--referer","https://www.facebook.com/");
+                boolean facebookSource=normalizedHost.equals("facebook.com")||normalizedHost.endsWith(".facebook.com")||normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch");
+                if(facebookSource){
+                    request.addOption("--referer","https://www.facebook.com/");
+                    request.addOption("--user-agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                }
                 if(haveCookies)request.addOption("--cookies",cookieFile.getAbsolutePath());
-                if(audioOnly)request.addOption("-f","bestaudio/best");
-                else request.addOption("-f","best[height<=720]/best");
+                if(audioOnly){
+                    // Produce MP3 directly instead of leaving the source audio/video beside it.
+                    request.addOption("-f","bestaudio/best")
+                        .addOption("-x")
+                        .addOption("--audio-format","mp3")
+                        .addOption("--audio-quality","192K");
+                }else{
+                    request.addOption("-f","best[height<=720]/best");
+                }
 
                 response=YtDlp.execute(request,callback);
                 if(response!=null&&response.isSuccess())break;
@@ -606,6 +617,9 @@ public class MainActivity extends Activity {
             if(!response.isSuccess()){
                 if(lastDetail.toLowerCase(Locale.ROOT).contains("403")||lastDetail.toLowerCase(Locale.ROOT).contains("forbidden")){
                     String sourceName=(normalizedHost.contains("facebook")||normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch"))?"Facebook":(youtube?"YouTube":"The source");
+                    if(sourceName.equals("Facebook")){
+                        throw new Exception("Facebook returned HTTP 403 (access denied). Open the exact video in the in-app browser and sign in if required, then retry. Check that the post is visible to your account. Private, restricted, or expired share links may not be downloadable.");
+                    }
                     throw new Exception(sourceName+" returned HTTP 403. Open the source in the in-app browser, sign in if needed, then retry. Some videos are restricted or blocked by the platform and may not be downloadable.");
                 }
                 throw new Exception("Source download failed: "+(lastDetail.isEmpty()?"yt-dlp exit code "+response.getExitCode():lastDetail));
@@ -615,22 +629,23 @@ public class MainActivity extends Activity {
             File saved=null;
             if(files!=null)for(File f:files){
                 String n=f.getName().toLowerCase(Locale.ROOT);
-                if(f.isFile()&&f.lastModified()>=startedAt-2000&&!n.endsWith(".part")&&!n.endsWith(".ytdl")&&!n.endsWith(".temp")&&!n.equals(name.toLowerCase(Locale.ROOT))){
+                boolean temporary=n.endsWith(".part")||n.endsWith(".ytdl")||n.endsWith(".temp")||n.endsWith(".tmp");
+                boolean requestedFormat=!audioOnly||n.endsWith(".mp3");
+                if(f.isFile()&&f.lastModified()>=startedAt-2000&&!temporary&&requestedFormat&&!n.equals(name.toLowerCase(Locale.ROOT))){
                     if(saved==null||f.lastModified()>saved.lastModified())saved=f;
                 }
             }
-            if(saved==null)throw new Exception("The extractor reported success, but no new output file was found. Try again and check available storage.");
+            if(saved==null){
+                if(audioOnly)throw new Exception("Audio extraction finished without an MP3 file. The source may not provide audio or the extractor could not convert it.");
+                throw new Exception("The extractor reported success, but no new output file was found. Try again and check available storage.");
+            }
             done=true;tasks.remove(url);persistPending(url,name,true);
             if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
             postNotification(2000+(Math.abs(url.hashCode())%500),saved.getName(),100,true);
             final File completedFile=saved;
-            if(audioOnly){
-                main.post(()->status.setText("Converting audio to MP3…"));
-                convertAudioToMp3(completedFile,null,192);
-            }else{
-                publishToMediaLibrary(completedFile);
-                main.post(()->{status.setText(tr("Download complete")+": "+completedFile.getName());refreshLibrary();});
-            }
+            // Publish only the requested final output. yt-dlp has already made MP3 for audio-only mode.
+            publishToMediaLibrary(completedFile);
+            main.post(()->{status.setText(tr("Download complete")+": "+completedFile.getName());refreshLibrary();});
         }
 
         private void downloadHlsStream(File dest,File part)throws Exception{
