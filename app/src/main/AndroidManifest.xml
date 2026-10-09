@@ -10,7 +10,7 @@
         tools:replace="android:label"
         android:allowBackup="true"
         android:label="Video Downloader"
-        android:icon="@drawable/ic_launcher_neon"
+        android:icon="@drawable/logo_full"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
         <service
