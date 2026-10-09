@@ -440,36 +440,60 @@ public class MainActivity extends Activity {
                 normalizedHost.equals("youtube-nocookie.com")||normalizedHost.endsWith(".youtube-nocookie.com");
             String[] clients=youtube?new String[]{"android","web_safari",""}:new String[]{""};
 
-            // Export only cookies available to this app's embedded browser. No passwords
-            // or account credentials are collected by the app.
+            // Export cookies from the embedded browser for the current URL and, for
+            // Facebook share links, the destination domains they commonly redirect to.
+            // Cookies stay in this app's cache and are passed only to yt-dlp for this URL.
             File cookieFile=new File(getCacheDir(),"ytdlp-cookies.txt");
             boolean haveCookies=false;
             try{
-                String cookieHeader=CookieManager.getInstance().getCookie(url);
-                if(cookieHeader!=null&&!cookieHeader.trim().isEmpty()&&hostForExtractor!=null){
-                    String host=normalizedHost;
-                    String cookieDomain=host;
+                ArrayList<String> cookieSources=new ArrayList<>();
+                cookieSources.add(url);
+                boolean facebook=normalizedHost.equals("facebook.com")||normalizedHost.endsWith(".facebook.com")||
+                    normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch");
+                if(facebook){
+                    cookieSources.add("https://www.facebook.com/");
+                    cookieSources.add("https://facebook.com/");
+                    cookieSources.add("https://m.facebook.com/");
+                    cookieSources.add("https://web.facebook.com/");
+                    cookieSources.add("https://fb.watch/");
+                }
+                java.util.LinkedHashMap<String,String> cookieLines=new java.util.LinkedHashMap<>();
+                for(String source:cookieSources){
+                    String header=CookieManager.getInstance().getCookie(source);
+                    if(header==null||header.trim().isEmpty())continue;
+                    String sourceHost=Uri.parse(source).getHost();
+                    if(sourceHost==null)continue;
+                    sourceHost=sourceHost.toLowerCase(Locale.ROOT);
+                    String cookieDomain=sourceHost;
                     boolean subdomains=false;
-                    if(host.equals("youtube.com")||host.endsWith(".youtube.com")){cookieDomain=".youtube.com";subdomains=true;}
-                    else if(host.equals("facebook.com")||host.endsWith(".facebook.com")){cookieDomain=".facebook.com";subdomains=true;}
-                    else if(host.equals("fb.watch")||host.endsWith(".fb.watch")){cookieDomain=".fb.watch";subdomains=true;}
-                    StringBuilder netscape=new StringBuilder("# Netscape HTTP Cookie File\n");
-                    for(String item:cookieHeader.split(";\\s*")){
+                    if(sourceHost.equals("youtube.com")||sourceHost.endsWith(".youtube.com")){
+                        cookieDomain=".youtube.com";subdomains=true;
+                    }else if(sourceHost.equals("facebook.com")||sourceHost.endsWith(".facebook.com")){
+                        cookieDomain=".facebook.com";subdomains=true;
+                    }else if(sourceHost.equals("fb.watch")||sourceHost.endsWith(".fb.watch")){
+                        cookieDomain=".fb.watch";subdomains=true;
+                    }
+                    boolean secure=source.toLowerCase(Locale.ROOT).startsWith("https://");
+                    for(String item:header.split(";\\s*")){
                         int eq=item.indexOf('=');
                         if(eq<=0)continue;
                         String cookieName=item.substring(0,eq).trim();
                         String cookieValue=item.substring(eq+1).trim();
-                        if(cookieName.isEmpty()||cookieName.indexOf('\n')>=0||cookieValue.indexOf('\n')>=0)continue;
-                        netscape.append(cookieDomain).append("\t").append(subdomains?"TRUE":"FALSE")
-                            .append("\t/\t").append(url.toLowerCase(Locale.ROOT).startsWith("https://")?"TRUE":"FALSE")
-                            .append("\t0\t").append(cookieName).append("\t").append(cookieValue).append("\n");
+                        if(cookieName.isEmpty()||cookieName.indexOf('\\n')>=0||cookieValue.indexOf('\\n')>=0||
+                            cookieName.indexOf('\\t')>=0||cookieValue.indexOf('\\t')>=0)continue;
+                        String key=cookieDomain+"\\t"+cookieName;
+                        String line=cookieDomain+"\\t"+(subdomains?"TRUE":"FALSE")+"\\t/\\t"+(secure?"TRUE":"FALSE")+
+                            "\\t0\\t"+cookieName+"\\t"+cookieValue+"\\n";
+                        cookieLines.put(key,line);
                     }
-                    if(netscape.length()> "# Netscape HTTP Cookie File\n".length()){
-                        try(FileOutputStream cookieOut=new FileOutputStream(cookieFile,false)){
-                            cookieOut.write(netscape.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        }
-                        haveCookies=true;
+                }
+                if(!cookieLines.isEmpty()){
+                    StringBuilder netscape=new StringBuilder("# Netscape HTTP Cookie File\\n");
+                    for(String line:cookieLines.values())netscape.append(line);
+                    try(FileOutputStream cookieOut=new FileOutputStream(cookieFile,false)){
+                        cookieOut.write(netscape.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
                     }
+                    haveCookies=true;
                 }
             }catch(Exception ignored){
                 // Public videos should still be attempted when no browser cookies exist.
@@ -498,6 +522,7 @@ public class MainActivity extends Activity {
                     .addOption("--extractor-retries","3")
                     .addOption("--user-agent",userAgent);
                 if(!client.isEmpty())request.addOption("--extractor-args","youtube:player_client="+client);
+                if(normalizedHost.equals("facebook.com")||normalizedHost.endsWith(".facebook.com")||normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch"))request.addOption("--referer","https://www.facebook.com/");
                 if(haveCookies)request.addOption("--cookies",cookieFile.getAbsolutePath());
                 if(audioOnly)request.addOption("-f","bestaudio/best");
                 else request.addOption("-f","best[height<=720]/best");
@@ -522,7 +547,8 @@ public class MainActivity extends Activity {
             if(response==null)throw new Exception(lastDetail.isEmpty()?"Downloader returned no result. Check your internet connection and try again.":lastDetail);
             if(!response.isSuccess()){
                 if(lastDetail.toLowerCase(Locale.ROOT).contains("403")||lastDetail.toLowerCase(Locale.ROOT).contains("forbidden")){
-                    throw new Exception("The source returned HTTP 403 after retrying available YouTube clients. The platform may require a current browser session or may block this network client. Private, removed, age/login-restricted or DRM-protected media cannot be downloaded.");
+                    String sourceName=(normalizedHost.contains("facebook")||normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch"))?"Facebook":(youtube?"YouTube":"The source");
+                    throw new Exception(sourceName+" returned HTTP 403. Open the source in the in-app browser, sign in if needed, then retry. Some videos are restricted or blocked by the platform and may not be downloadable.");
                 }
                 throw new Exception("Source download failed: "+(lastDetail.isEmpty()?"yt-dlp exit code "+response.getExitCode():lastDetail));
             }
