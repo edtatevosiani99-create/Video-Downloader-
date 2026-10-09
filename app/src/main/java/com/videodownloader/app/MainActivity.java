@@ -200,9 +200,25 @@ public class MainActivity extends Activity {
         return base;
     }
     private void startDownload(String raw,String disposition,String mime,String savedName,String userAgent){startDownload(raw,disposition,mime,savedName,userAgent,false);}
+    private boolean isDirectMediaUrl(String raw){
+        try{
+            String path=Uri.parse(raw).getPath();
+            if(path==null)return false;
+            return path.toLowerCase(Locale.ROOT).matches("(?s).*\\.(mp4|m4v|mkv|webm|mov|avi|mpg|mpeg|3gp|ts|mp3|m4a|aac|wav|flac|ogg|opus|wma|m3u8)$");
+        }catch(Exception e){return false;}
+    }
+    private boolean shouldUseExtractor(String raw,String disposition,String mime){
+        if(needsExtractor(raw))return true;
+        if(disposition!=null&&!disposition.trim().isEmpty())return false;
+        if(mime!=null){
+            String type=mime.toLowerCase(Locale.ROOT);
+            if(type.startsWith("video/")||type.startsWith("audio/")||type.equals("application/octet-stream"))return false;
+        }
+        return !isDirectMediaUrl(raw);
+    }
     private void startDownload(String raw,String disposition,String mime,String savedName,String userAgent,boolean audioOnly){
-        if(needsExtractor(raw)){startYtDlpDownload(raw,userAgent,audioOnly);return;}
         if(isHlsUrl(raw)){if(audioOnly){toast("This stream link needs to be downloaded as video first; then use Extract MP3 in the library.");return;}inspectHlsAndStart(raw,disposition,mime,savedName,userAgent);return;}
+        if(shouldUseExtractor(raw,disposition,mime)){startYtDlpDownload(raw,userAgent,audioOnly);return;}
         startDownloadRaw(raw,disposition,mime,savedName,userAgent,audioOnly);
     }
     private void startDownloadRaw(String raw,String disposition,String mime,String savedName,String userAgent){startDownloadRaw(raw,disposition,mime,savedName,userAgent,false);}
@@ -446,7 +462,7 @@ public class MainActivity extends Activity {
                             String cookieName=item.substring(0,eq).trim();
                             String cookieValue=item.substring(eq+1).trim();
                             if(cookieName.isEmpty())continue;
-                            netscape.append(cookieDomain).append("\\t").append(subdomains?"TRUE":"FALSE")
+                            netscape.append(cookieDomain).append("\t").append(subdomains?"TRUE":"FALSE")
                                 .append("\\t/\\t").append(url.toLowerCase(Locale.ROOT).startsWith("https://")?"TRUE":"FALSE")
                                 .append("\\t0\\t").append(cookieName).append("\\t").append(cookieValue).append("\\n");
                         }
