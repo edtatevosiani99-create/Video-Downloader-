@@ -537,16 +537,16 @@ public class MainActivity extends Activity {
                         if(eq<=0)continue;
                         String cookieName=item.substring(0,eq).trim();
                         String cookieValue=item.substring(eq+1).trim();
-                        if(cookieName.isEmpty()||cookieName.indexOf('\\n')>=0||cookieValue.indexOf('\\n')>=0||
-                            cookieName.indexOf('\\t')>=0||cookieValue.indexOf('\\t')>=0)continue;
-                        String key=cookieDomain+"\\t"+cookieName;
-                        String line=cookieDomain+"\\t"+(subdomains?"TRUE":"FALSE")+"\\t/\\t"+(secure?"TRUE":"FALSE")+
-                            "\\t0\\t"+cookieName+"\\t"+cookieValue+"\\n";
+                        if(cookieName.isEmpty()||cookieName.indexOf('\n')>=0||cookieValue.indexOf('\n')>=0||
+                            cookieName.indexOf('\t')>=0||cookieValue.indexOf('\t')>=0)continue;
+                        String key=cookieDomain+"\t"+cookieName;
+                        String line=cookieDomain+"\t"+(subdomains?"TRUE":"FALSE")+"\t/\t"+(secure?"TRUE":"FALSE")+
+                            "\t0\t"+cookieName+"\t"+cookieValue+"\n";
                         cookieLines.put(key,line);
                     }
                 }
                 if(!cookieLines.isEmpty()){
-                    StringBuilder netscape=new StringBuilder("# Netscape HTTP Cookie File\\n");
+                    StringBuilder netscape=new StringBuilder("# Netscape HTTP Cookie File\n");
                     for(String line:cookieLines.values())netscape.append(line);
                     try(FileOutputStream cookieOut=new FileOutputStream(cookieFile,false)){
                         cookieOut.write(netscape.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
