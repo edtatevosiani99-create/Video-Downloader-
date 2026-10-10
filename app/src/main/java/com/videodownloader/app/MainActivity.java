@@ -80,6 +80,9 @@ public class MainActivity extends Activity {
     private LinearLayout root, taskList, fileList, musicList, videoList;
     private VideoView videoPlayer;
     private FrameLayout videoPlayerFrame;
+    private Button videoFullscreenButton;
+    private boolean videoFullscreen=false;
+    private int previousOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     private MediaPlayer musicPlayer;
     private TextView musicNowPlaying;
     private EditText urlInput;
@@ -215,11 +218,17 @@ public class MainActivity extends Activity {
         TextView musicTitle=text(tr("Music"),18,CYAN);musicTitle.setTypeface(null,Typeface.BOLD);musicTitle.setPadding(0,dp(10),0,dp(4));musicSection.addView(musicTitle);
         musicNowPlaying=text(tr("Now playing")+": —",13,Color.LTGRAY);musicNowPlaying.setPadding(0,dp(3),0,dp(8));musicSection.addView(musicNowPlaying);
         musicList=new LinearLayout(this);musicList.setOrientation(LinearLayout.VERTICAL);musicSection.addView(musicList);
-        LinearLayout videoSection=new LinearLayout(this);videoSection.setOrientation(LinearLayout.VERTICAL);videoSection.setVisibility(View.GONE);content.addView(videoSection);
+        LinearLayout videoSection=new LinearLayout(this);videoSection.setTag("video-section");videoSection.setOrientation(LinearLayout.VERTICAL);videoSection.setVisibility(View.GONE);content.addView(videoSection);
         TextView videoTitle=text(tr("Video"),18,CYAN);videoTitle.setTypeface(null,Typeface.BOLD);videoTitle.setPadding(0,dp(10),0,dp(4));videoSection.addView(videoTitle);
         videoPlayerFrame=new FrameLayout(this);videoPlayerFrame.setBackgroundColor(Color.BLACK);
         videoPlayer=new VideoView(this);videoPlayer.setBackgroundColor(Color.BLACK);
         videoPlayerFrame.addView(videoPlayer,new FrameLayout.LayoutParams(-1,-1));
+        videoFullscreenButton=button("⛶",false);
+        videoFullscreenButton.setTextSize(22);
+        FrameLayout.LayoutParams fullscreenButtonParams=new FrameLayout.LayoutParams(dp(48),dp(44),android.view.Gravity.TOP|android.view.Gravity.END);
+        fullscreenButtonParams.setMargins(0,dp(6),dp(6),0);
+        videoPlayerFrame.addView(videoFullscreenButton,fullscreenButtonParams);
+        videoFullscreenButton.setOnClickListener(v->toggleVideoFullscreen());
         MediaController mediaController=new MediaController(this);
         mediaController.setAnchorView(videoPlayerFrame);
         videoPlayer.setMediaController(mediaController);
@@ -228,6 +237,7 @@ public class MainActivity extends Activity {
                 videoPlayerFrame.requestLayout();
                 mediaController.setAnchorView(videoPlayerFrame);
             });
+            videoPlayerFrame.setVisibility(View.VISIBLE);
             videoPlayer.start();
         });
         videoPlayer.setOnErrorListener((mp,what,extra)->{
@@ -898,6 +908,40 @@ public class MainActivity extends Activity {
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(5);videoList.addView(row,rp);
         }
         if(!any)videoList.addView(text(tr("No video files"),13,Color.LTGRAY));
+    }
+    private void toggleVideoFullscreen(){
+        if(videoPlayerFrame==null||root==null)return;
+        if(!videoFullscreen){
+            previousOrientation=getRequestedOrientation();
+            videoFullscreen=true;
+            android.view.ViewParent parent=videoPlayerFrame.getParent();
+            if(parent instanceof android.view.ViewGroup)((android.view.ViewGroup)parent).removeView(videoPlayerFrame);
+            root.setVisibility(View.GONE);
+            android.view.ViewGroup decor=(android.view.ViewGroup)getWindow().getDecorView();
+            decor.addView(videoPlayerFrame,new android.view.ViewGroup.LayoutParams(-1,-1));
+            videoFullscreenButton.setText("⤢");
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+            if(Build.VERSION.SDK_INT>=19)decor.setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }else{
+            videoFullscreen=false;
+            android.view.ViewGroup decor=(android.view.ViewGroup)getWindow().getDecorView();
+            if(videoPlayerFrame.getParent() instanceof android.view.ViewGroup)
+                ((android.view.ViewGroup)videoPlayerFrame.getParent()).removeView(videoPlayerFrame);
+            root.setVisibility(View.VISIBLE);
+            // Return the player to the Video section and its normal portrait-sized area.
+            View section=root.findViewWithTag("video-section");
+            if(section instanceof LinearLayout){
+                ((LinearLayout)section).addView(videoPlayerFrame,0,new LinearLayout.LayoutParams(-1,dp(250)));
+            }else{
+                videoPlayerFrame.setVisibility(View.GONE);
+            }
+            videoFullscreenButton.setText("⛶");
+            decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+            setRequestedOrientation(previousOrientation);
+        }
     }
     private boolean isMediaFile(File f){
         String ext=android.webkit.MimeTypeMap.getFileExtensionFromUrl(f.getName()).toLowerCase(Locale.ROOT);
