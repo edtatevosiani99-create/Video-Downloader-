@@ -79,6 +79,7 @@ public class MainActivity extends Activity {
     private final ArrayList<File> completed=new ArrayList<>();
     private LinearLayout root, taskList, fileList, musicList, videoList;
     private VideoView videoPlayer;
+    private FrameLayout videoPlayerFrame;
     private MediaPlayer musicPlayer;
     private TextView musicNowPlaying;
     private EditText urlInput;
@@ -216,9 +217,24 @@ public class MainActivity extends Activity {
         musicList=new LinearLayout(this);musicList.setOrientation(LinearLayout.VERTICAL);musicSection.addView(musicList);
         LinearLayout videoSection=new LinearLayout(this);videoSection.setOrientation(LinearLayout.VERTICAL);videoSection.setVisibility(View.GONE);content.addView(videoSection);
         TextView videoTitle=text(tr("Video"),18,CYAN);videoTitle.setTypeface(null,Typeface.BOLD);videoTitle.setPadding(0,dp(10),0,dp(4));videoSection.addView(videoTitle);
+        videoPlayerFrame=new FrameLayout(this);videoPlayerFrame.setBackgroundColor(Color.BLACK);
         videoPlayer=new VideoView(this);videoPlayer.setBackgroundColor(Color.BLACK);
-        MediaController mediaController=new MediaController(this);mediaController.setAnchorView(videoPlayer);videoPlayer.setMediaController(mediaController);
-        videoSection.addView(videoPlayer,new LinearLayout.LayoutParams(-1,dp(230)));
+        videoPlayerFrame.addView(videoPlayer,new FrameLayout.LayoutParams(-1,-1));
+        MediaController mediaController=new MediaController(this);
+        mediaController.setAnchorView(videoPlayerFrame);
+        videoPlayer.setMediaController(mediaController);
+        videoPlayer.setOnPreparedListener(mp->{
+            mp.setOnVideoSizeChangedListener((player,width,height)->{
+                videoPlayerFrame.requestLayout();
+                mediaController.setAnchorView(videoPlayerFrame);
+            });
+            videoPlayer.start();
+        });
+        videoPlayer.setOnErrorListener((mp,what,extra)->{
+            toast("Cannot play this video. The format may not be supported.");
+            return true;
+        });
+        videoSection.addView(videoPlayerFrame,new LinearLayout.LayoutParams(-1,dp(250)));
         videoList=new LinearLayout(this);videoList.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams videoListParams=new LinearLayout.LayoutParams(-1,-2);videoListParams.topMargin=dp(8);videoSection.addView(videoList,videoListParams);
         root.addView(pageScroll,new LinearLayout.LayoutParams(-1,0,1));
         TextView ad=text(tr("Advertisement"),10,Color.GRAY);ad.setGravity(android.view.Gravity.CENTER);ad.setBackgroundColor(Color.rgb(12,15,34));root.addView(ad,new LinearLayout.LayoutParams(-1,dp(30)));
@@ -304,14 +320,18 @@ public class MainActivity extends Activity {
         try{
             String ext=android.webkit.MimeTypeMap.getFileExtensionFromUrl(source.getName()).toLowerCase(Locale.ROOT);
             String mime=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
-            if(mime==null){
-                if(ext.equals("ts"))mime="video/mp2t";
+            // Trust the actual file extension for common media formats. Some Android
+            // MIME maps return null or a generic type for MP3/MP4, which can send audio
+            // into the Movies collection instead of Music.
+            boolean audio=ext.matches("mp3|m4a|aac|ogg|opus|wav|flac|amr|aiff|wma");
+            boolean video=ext.matches("mp4|mkv|webm|3gp|mov|avi|mpeg|mpg|ts|m4v|wmv");
+            if(audio)mime=ext.equals("mp3")?"audio/mpeg":(mime!=null&&mime.startsWith("audio/")?mime:"audio/*");
+            else if(video){
+                if(ext.equals("mp4")||ext.equals("m4v"))mime="video/mp4";
                 else if(ext.equals("mkv"))mime="video/x-matroska";
-                else if(ext.equals("flac"))mime="audio/flac";
-                else mime="application/octet-stream";
-            }
-            boolean audio=mime.startsWith("audio/");
-            boolean video=mime.startsWith("video/");
+                else if(ext.equals("ts"))mime="video/mp2t";
+                else if(mime==null||!mime.startsWith("video/"))mime="video/*";
+            }else if(mime==null)mime="application/octet-stream";
             if(Build.VERSION.SDK_INT>=29){
                 android.net.Uri collection=audio?android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI:
                     video?android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI:
@@ -866,7 +886,16 @@ public class MainActivity extends Activity {
             LinearLayout row=new LinearLayout(this);row.setGravity(android.view.Gravity.CENTER_VERTICAL);row.setPadding(dp(8),dp(5),dp(8),dp(5));row.setBackgroundColor(PANEL);
             TextView name=text(f.getName(),13,Color.WHITE);row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
             Button play=button(tr("Play"),true);row.addView(play,new LinearLayout.LayoutParams(dp(92),dp(40)));
-            play.setOnClickListener(v->{stopMusicPlayback();videoPlayer.setVideoPath(f.getAbsolutePath());videoPlayer.start();});
+            play.setOnClickListener(v->{
+                stopMusicPlayback();
+                try{
+                    videoPlayer.stopPlayback();
+                    videoPlayer.setVideoURI(Uri.fromFile(f));
+                    videoPlayer.requestFocus();
+                    videoPlayer.setVideoPath(f.getAbsolutePath());
+                    videoPlayerFrame.setVisibility(View.VISIBLE);
+                }catch(Exception e){toast("Cannot open video: "+e.getMessage());}
+            });
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(5);videoList.addView(row,rp);
         }
         if(!any)videoList.addView(text(tr("No video files"),13,Color.LTGRAY));
