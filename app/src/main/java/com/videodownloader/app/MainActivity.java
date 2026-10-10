@@ -735,18 +735,16 @@ public class MainActivity extends Activity {
                 }
                 if(haveCookies)request.addOption("--cookies",cookieFile.getAbsolutePath());
                 if(audioOnly){
-                    // Audio mode must yield an MP3 only: select audio-only source formats,
-                    // force MP3 post-processing, and never preserve the intermediate video.
-                    request.addOption("-f","bestaudio")
-                        .addOption("-x")
-                        .addOption("--audio-format","mp3")
-                        .addOption("--audio-quality","192K")
-                        .addOption("--no-keep-video")
+                    // This Android build cannot rely on yt-dlp's FFmpeg postprocessor.
+                    // Download a single audio stream first, then encode it to MP3 with
+                    // the app's MediaCodec + LAME converter after the transfer completes.
+                    request.addOption("-f","bestaudio[ext=m4a]/bestaudio/best")
                         .addOption("--force-overwrites");
                 }else{
-                    // Prefer one progressive stream containing BOTH audio and video.
-                    // Separate tracks require FFmpeg to merge and can lead to sound-only playback.
-                    request.addOption("-f","best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]/best[height<=720][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]");
+                    // Choose a progressive MP4 with H.264 video and AAC audio whenever
+                    // available. Avoid separate video/audio tracks because this build
+                    // cannot reliably merge them without an FFmpeg binary.
+                    request.addOption("-f","best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][vcodec!=none][acodec!=none]/best[height<=720][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]");
                 }
 
                 response=YtDlp.execute(request,callback);
@@ -786,8 +784,9 @@ public class MainActivity extends Activity {
                 // Restrict candidates to files created by this exact task and to the
                 // selected format. This prevents an MP4 from a previous/parallel task
                 // being reported as the result of an MP3 request.
-                boolean requestedFormat=audioOnly?n.endsWith(".mp3"):
-                    (n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".webm")||n.endsWith(".mkv")||n.endsWith(".mov")||n.endsWith(".3gp"));
+                boolean requestedFormat=audioOnly?
+                    (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")):
+                    (n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".3gp"));
                 boolean belongsToTask=n.startsWith(("vd_"+startedAt+"_").toLowerCase(Locale.ROOT));
                 if(f.isFile()&&belongsToTask&&f.lastModified()>=startedAt-2000&&!temporary&&requestedFormat&&!n.equals(name.toLowerCase(Locale.ROOT))){
                     if(saved==null||f.lastModified()>saved.lastModified())saved=f;
@@ -801,9 +800,17 @@ public class MainActivity extends Activity {
             if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
             postNotification(2000+(Math.abs(url.hashCode())%500),saved.getName(),100,true);
             final File completedFile=saved;
-            // Publish only the requested final output. yt-dlp has already made MP3 for audio-only mode.
-            publishToMediaLibrary(completedFile);
-            main.post(()->{status.setText(tr("Download complete")+": "+completedFile.getName());refreshLibrary();});
+            if(audioOnly){
+                // Convert the downloaded audio container locally to a real MP3. Do not
+                // depend on yt-dlp postprocessing, which requires FFmpeg on Android.
+                main.post(()->{
+                    status.setText(tr("Downloading")+": converting audio to MP3…");
+                    convertAudioToMp3(completedFile,null,192);
+                });
+            }else{
+                publishToMediaLibrary(completedFile);
+                main.post(()->{status.setText(tr("Download complete")+": "+completedFile.getName());refreshLibrary();});
+            }
         }
 
         private void downloadHlsStream(File dest,File part)throws Exception{
@@ -918,9 +925,16 @@ public class MainActivity extends Activity {
                 stopMusicPlayback();
                 try{
                     videoPlayer.stopPlayback();
+                    videoPlayer.setVisibility(View.VISIBLE);
                     videoPlayer.requestFocus();
-                    videoPlayer.setVideoPath(f.getAbsolutePath());
                     videoPlayerFrame.setVisibility(View.VISIBLE);
+                    videoPlayer.setVideoURI(Uri.fromFile(f));
+                    videoPlayer.setOnPreparedListener(mp->{
+                        mp.setScreenOnWhilePlaying(true);
+                        videoPlayer.setVisibility(View.VISIBLE);
+                        videoPlayerFrame.setVisibility(View.VISIBLE);
+                        videoPlayer.start();
+                    });
                 }catch(Exception e){toast("Cannot open video: "+e.getMessage());}
             });
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(5);videoList.addView(row,rp);
