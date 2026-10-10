@@ -310,7 +310,13 @@ public class MainActivity extends Activity {
                    host.equals("youtube.com")||host.endsWith(".youtube.com")||
                    host.equals("youtube-nocookie.com")||host.endsWith(".youtube-nocookie.com")||
                    host.equals("fb.watch")||host.endsWith(".fb.watch")||
-                   host.equals("facebook.com")||host.endsWith(".facebook.com");
+                   host.equals("facebook.com")||host.endsWith(".facebook.com")||
+                   host.equals("tiktok.com")||host.endsWith(".tiktok.com")||
+                   host.equals("instagram.com")||host.endsWith(".instagram.com")||
+                   host.equals("redd.it")||host.endsWith(".redd.it")||
+                   host.equals("reddit.com")||host.endsWith(".reddit.com")||
+                   host.equals("dailymotion.com")||host.endsWith(".dailymotion.com")||
+                   host.equals("dai.ly")||host.endsWith(".dai.ly");
         }catch(Exception e){return false;}
     }
     private void startYtDlpDownload(String raw,String userAgent,boolean audioOnly){
@@ -737,7 +743,7 @@ public class MainActivity extends Activity {
                 }else{
                     // Prefer one progressive stream containing BOTH audio and video.
                     // Separate tracks require FFmpeg to merge and can lead to sound-only playback.
-                    request.addOption("-f","best[height<=720][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]/best");
+                    request.addOption("-f","best[ext=mp4][height<=720][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]/best[height<=720][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]");
                 }
 
                 response=YtDlp.execute(request,callback);
