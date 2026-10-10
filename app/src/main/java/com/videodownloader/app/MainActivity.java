@@ -230,7 +230,8 @@ public class MainActivity extends Activity {
         videoPlayerFrame.addView(videoFullscreenButton,fullscreenButtonParams);
         videoFullscreenButton.setOnClickListener(v->toggleVideoFullscreen());
         MediaController mediaController=new MediaController(this);
-        mediaController.setAnchorView(videoPlayerFrame);
+        // Anchor playback controls to the actual VideoView so Android positions them over the video surface.
+        mediaController.setAnchorView(videoPlayer);
         videoPlayer.setMediaController(mediaController);
         videoPlayer.setOnPreparedListener(mp->{
             mp.setOnVideoSizeChangedListener((player,width,height)->{
