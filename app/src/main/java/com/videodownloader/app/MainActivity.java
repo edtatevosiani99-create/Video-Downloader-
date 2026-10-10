@@ -15,6 +15,7 @@ import android.media.MediaExtractor;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
+import android.media.MediaPlayer;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import com.naman14.androidlame.AndroidLame;
@@ -46,6 +47,8 @@ import android.text.style.ForegroundColorSpan;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.VideoView;
+import android.widget.MediaController;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
 import androidx.core.view.ViewCompat;
@@ -74,7 +77,10 @@ public class MainActivity extends Activity {
     private final ConcurrentHashMap<String, Task> tasks=new ConcurrentHashMap<>();
     private static final Semaphore DOWNLOAD_SLOTS=new Semaphore(2,true);
     private final ArrayList<File> completed=new ArrayList<>();
-    private LinearLayout root, taskList, fileList;
+    private LinearLayout root, taskList, fileList, musicList, videoList;
+    private VideoView videoPlayer;
+    private MediaPlayer musicPlayer;
+    private TextView musicNowPlaying;
     private EditText urlInput;
     private TextView status, libraryTitle;
     private WebView browser;
@@ -84,6 +90,12 @@ public class MainActivity extends Activity {
     private static final int NOTIFICATION_PERMISSION_REQUEST=7001;
 
     private String tr(String key) {
+        if(key.equals("Downloader")) return language.equals("ru")?"Загрузчик":language.equals("ka")?"ჩამოტვირთვა":language.equals("es")?"Descargas":language.equals("de")?"Downloader":language.equals("fr")?"Télécharger":language.equals("tr")?"İndirici":"Downloader";
+        if(key.equals("Music")) return language.equals("ru")?"Музыка":language.equals("ka")?"მუსიკა":language.equals("es")?"Música":language.equals("de")?"Musik":language.equals("fr")?"Musique":language.equals("tr")?"Müzik":"Music";
+        if(key.equals("Video")) return language.equals("ru")?"Видео":language.equals("ka")?"ვიდეო":language.equals("es")?"Vídeo":language.equals("de")?"Video":language.equals("fr")?"Vidéo":language.equals("tr")?"Video":"Video";
+        if(key.equals("No music files")) return language.equals("ru")?"Аудиофайлов пока нет":language.equals("ka")?"აუდიოფაილები ჯერ არ არის":language.equals("es")?"Aún no hay archivos de audio":language.equals("de")?"Noch keine Audiodateien":language.equals("fr")?"Aucun fichier audio":language.equals("tr")?"Henüz ses dosyası yok":"No music files yet";
+        if(key.equals("No video files")) return language.equals("ru")?"Видеофайлов пока нет":language.equals("ka")?"ვიდეოფაილები ჯერ არ არის":language.equals("es")?"Aún no hay vídeos":language.equals("de")?"Noch keine Videodateien":language.equals("fr")?"Aucune vidéo":language.equals("tr")?"Henüz video yok":"No video files yet";
+        if(key.equals("Now playing")) return language.equals("ru")?"Сейчас играет":language.equals("ka")?"ახლა უკრავს":language.equals("es")?"Reproduciendo":language.equals("de")?"Wiedergabe":language.equals("fr")?"Lecture":language.equals("tr")?"Şimdi çalıyor":"Now playing";
         String[][] values={
           {"en","Video Downloader","Paste a link","Open","Download","Downloads","Ready","Advertisement","Pause","Resume","Cancel","Play","Share","Delete","No downloaded files yet","Enter a URL first","Download started","Download complete","Download failed","Choose language","Download only content you have permission to save.","Browser","Files","English","Русский","ქართული","Waiting","Paused","Downloading","Extract MP3","Audio saved","Audio extraction failed","ABKHAZIA IS GEORGIA"},
           {"ru","Video Downloader","Вставь ссылку","Открыть","Скачать","Загрузки","Готово","Реклама","Пауза","Продолжить","Отмена","Открыть","Поделиться","Удалить","Пока нет загруженных файлов","Сначала введи ссылку","Загрузка началась","Загрузка завершена","Ошибка загрузки","Выбери язык","Скачивай только материалы, которые разрешено сохранять.","Браузер","Файлы","English","Русский","ქართული","Ожидание","На паузе","Загрузка","Извлечь MP3","Аудио сохранено","Не удалось извлечь аудио","АБХАЗИЯ ЭТО ГРУЗИЯ"},
@@ -155,6 +167,16 @@ public class MainActivity extends Activity {
         brandText.addView(brandVideo);brandText.addView(brandDownloader);
         top.addView(brandText,brandTextParams);
         Button lang=button(languageFlag(),false);lang.setTextSize(22);lang.setPadding(0,0,0,0);top.addView(lang,new LinearLayout.LayoutParams(dp(48),dp(44)));lang.setOnClickListener(v->chooseLanguage());root.addView(top);
+        LinearLayout sectionTabs=new LinearLayout(this);sectionTabs.setOrientation(LinearLayout.HORIZONTAL);
+        Button downloaderSectionTab=button(tr("Downloader"),true),musicSectionTab=button(tr("Music"),false),videoSectionTab=button(tr("Video"),false);
+        LinearLayout.LayoutParams sectionTabParams=new LinearLayout.LayoutParams(0,dp(42),1);
+        sectionTabs.addView(downloaderSectionTab,sectionTabParams);
+        LinearLayout.LayoutParams sectionTabParams2=new LinearLayout.LayoutParams(0,dp(42),1);sectionTabParams2.leftMargin=dp(4);
+        sectionTabs.addView(musicSectionTab,sectionTabParams2);
+        LinearLayout.LayoutParams sectionTabParams3=new LinearLayout.LayoutParams(0,dp(42),1);sectionTabParams3.leftMargin=dp(4);
+        sectionTabs.addView(videoSectionTab,sectionTabParams3);
+        LinearLayout.LayoutParams sectionTabsParams=new LinearLayout.LayoutParams(-1,dp(44));sectionTabsParams.topMargin=dp(3);sectionTabsParams.bottomMargin=dp(5);
+        root.addView(sectionTabs,sectionTabsParams);
         urlInput=new EditText(this);urlInput.setSingleLine(true);urlInput.setTextColor(Color.WHITE);urlInput.setHintTextColor(Color.GRAY);urlInput.setHint(tr("Paste a link"));
         urlInput.setTextSize(14);urlInput.setPadding(dp(12),0,dp(12),0);urlInput.setBackgroundColor(PANEL);
         root.addView(urlInput,new LinearLayout.LayoutParams(-1,dp(48)));
@@ -165,6 +187,7 @@ public class MainActivity extends Activity {
         nav.addView(browserTab,new LinearLayout.LayoutParams(0,dp(42),1));nav.addView(libraryTab,new LinearLayout.LayoutParams(0,dp(42),1));root.addView(nav);
         status=text(tr("Ready"),12,Color.LTGRAY);status.setPadding(0,dp(6),0,dp(6));root.addView(status);
         pageScroll=new ScrollView(this);LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);pageScroll.addView(content);
+        LinearLayout downloaderSection=new LinearLayout(this);downloaderSection.setOrientation(LinearLayout.VERTICAL);content.addView(downloaderSection);
         FrameLayout posterFrame=new FrameLayout(this);
         posterFrame.setBackgroundColor(Color.BLACK);
         ImageView posterImage=new ImageView(this);
@@ -178,18 +201,52 @@ public class MainActivity extends Activity {
         hiddenBrowserMessage.setBackgroundColor(Color.BLACK);
         FrameLayout.LayoutParams posterTextParams=new FrameLayout.LayoutParams(-1,dp(42),android.view.Gravity.CENTER);
         posterFrame.addView(hiddenBrowserMessage,posterTextParams);
-        content.addView(posterFrame,new LinearLayout.LayoutParams(-1,dp(220)));
+        downloaderSection.addView(posterFrame,new LinearLayout.LayoutParams(-1,dp(220)));
         browser=new WebView(this);browser.setBackgroundColor(BG);browser.getSettings().setJavaScriptEnabled(true);browser.getSettings().setDomStorageEnabled(true);browser.getSettings().setMediaPlaybackRequiresUserGesture(true);
         browser.setWebChromeClient(new WebChromeClient());browser.setWebViewClient(new WebViewClient());
         browser.setDownloadListener((url,ua,disp,mime,len)->startDownload(url,disp,mime,ua));
-        content.addView(browser,new LinearLayout.LayoutParams(-1,dp(420)));browser.setVisibility(View.GONE);
-        TextView qTitle=text(tr("Downloads"),17,CYAN);qTitle.setTypeface(null,Typeface.BOLD);qTitle.setPadding(0,dp(12),0,dp(6));content.addView(qTitle);qTitle.setVisibility(View.GONE);
-        taskList=new LinearLayout(this);taskList.setOrientation(LinearLayout.VERTICAL);content.addView(taskList);taskList.setVisibility(View.GONE);
-        libraryTitle=text(tr("Files"),17,CYAN);libraryTitle.setTypeface(null,Typeface.BOLD);libraryTitle.setPadding(0,dp(12),0,dp(6));content.addView(libraryTitle);libraryTitle.setVisibility(View.GONE);
-        fileList=new LinearLayout(this);fileList.setOrientation(LinearLayout.VERTICAL);content.addView(fileList);fileList.setVisibility(View.GONE);
+        downloaderSection.addView(browser,new LinearLayout.LayoutParams(-1,dp(420)));browser.setVisibility(View.GONE);
+        TextView qTitle=text(tr("Downloads"),17,CYAN);qTitle.setTypeface(null,Typeface.BOLD);qTitle.setPadding(0,dp(12),0,dp(6));downloaderSection.addView(qTitle);qTitle.setVisibility(View.GONE);
+        taskList=new LinearLayout(this);taskList.setOrientation(LinearLayout.VERTICAL);downloaderSection.addView(taskList);taskList.setVisibility(View.GONE);
+        libraryTitle=text(tr("Files"),17,CYAN);libraryTitle.setTypeface(null,Typeface.BOLD);libraryTitle.setPadding(0,dp(12),0,dp(6));downloaderSection.addView(libraryTitle);libraryTitle.setVisibility(View.GONE);
+        fileList=new LinearLayout(this);fileList.setOrientation(LinearLayout.VERTICAL);downloaderSection.addView(fileList);fileList.setVisibility(View.GONE);
+        LinearLayout musicSection=new LinearLayout(this);musicSection.setOrientation(LinearLayout.VERTICAL);musicSection.setVisibility(View.GONE);content.addView(musicSection);
+        TextView musicTitle=text(tr("Music"),18,CYAN);musicTitle.setTypeface(null,Typeface.BOLD);musicTitle.setPadding(0,dp(10),0,dp(4));musicSection.addView(musicTitle);
+        musicNowPlaying=text(tr("Now playing")+": —",13,Color.LTGRAY);musicNowPlaying.setPadding(0,dp(3),0,dp(8));musicSection.addView(musicNowPlaying);
+        musicList=new LinearLayout(this);musicList.setOrientation(LinearLayout.VERTICAL);musicSection.addView(musicList);
+        LinearLayout videoSection=new LinearLayout(this);videoSection.setOrientation(LinearLayout.VERTICAL);videoSection.setVisibility(View.GONE);content.addView(videoSection);
+        TextView videoTitle=text(tr("Video"),18,CYAN);videoTitle.setTypeface(null,Typeface.BOLD);videoTitle.setPadding(0,dp(10),0,dp(4));videoSection.addView(videoTitle);
+        videoPlayer=new VideoView(this);videoPlayer.setBackgroundColor(Color.BLACK);
+        MediaController mediaController=new MediaController(this);mediaController.setAnchorView(videoPlayer);videoPlayer.setMediaController(mediaController);
+        videoSection.addView(videoPlayer,new LinearLayout.LayoutParams(-1,dp(230)));
+        videoList=new LinearLayout(this);videoList.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams videoListParams=new LinearLayout.LayoutParams(-1,-2);videoListParams.topMargin=dp(8);videoSection.addView(videoList,videoListParams);
         root.addView(pageScroll,new LinearLayout.LayoutParams(-1,0,1));
         TextView ad=text(tr("Advertisement"),10,Color.GRAY);ad.setGravity(android.view.Gravity.CENTER);ad.setBackgroundColor(Color.rgb(12,15,34));root.addView(ad,new LinearLayout.LayoutParams(-1,dp(30)));
         setContentView(root);
+        Runnable showDownloader=()->{
+            downloaderSection.setVisibility(View.VISIBLE);musicSection.setVisibility(View.GONE);videoSection.setVisibility(View.GONE);
+            urlInput.setVisibility(View.VISIBLE);actions.setVisibility(View.VISIBLE);nav.setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);
+            downloaderSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(0,105,150)));
+            musicSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(95,30,135)));
+            videoSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(95,30,135)));
+        };
+        downloaderSectionTab.setOnClickListener(v->showDownloader.run());
+        musicSectionTab.setOnClickListener(v->{
+            downloaderSection.setVisibility(View.GONE);musicSection.setVisibility(View.VISIBLE);videoSection.setVisibility(View.GONE);
+            urlInput.setVisibility(View.GONE);actions.setVisibility(View.GONE);nav.setVisibility(View.GONE);status.setVisibility(View.GONE);
+            downloaderSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(95,30,135)));
+            musicSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(0,105,150)));
+            videoSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(95,30,135)));
+            if(videoPlayer!=null)videoPlayer.pause();refreshMusicLibrary();pageScroll.smoothScrollTo(0,0);
+        });
+        videoSectionTab.setOnClickListener(v->{
+            downloaderSection.setVisibility(View.GONE);musicSection.setVisibility(View.GONE);videoSection.setVisibility(View.VISIBLE);
+            urlInput.setVisibility(View.GONE);actions.setVisibility(View.GONE);nav.setVisibility(View.GONE);status.setVisibility(View.GONE);
+            downloaderSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(95,30,135)));
+            musicSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(95,30,135)));
+            videoSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(0,105,150)));
+            stopMusicPlayback();refreshVideoLibrary();pageScroll.smoothScrollTo(0,0);
+        });
         browserTab.setOnClickListener(v->{boolean show=browser.getVisibility()!=View.VISIBLE;browser.setVisibility(show?View.VISIBLE:View.GONE);posterFrame.setVisibility(show?View.GONE:View.VISIBLE);hiddenBrowserMessage.setVisibility(show?View.GONE:View.VISIBLE);qTitle.setVisibility(show?View.VISIBLE:View.GONE);taskList.setVisibility(show?View.VISIBLE:View.GONE);if(show){if(browser.getUrl()==null||browser.getUrl().isEmpty()||"about:blank".equals(browser.getUrl()))browser.loadUrl("https://www.google.com");pageScroll.smoothScrollTo(0,0);}});
         libraryTab.setOnClickListener(v->{boolean show=fileList.getVisibility()!=View.VISIBLE;libraryTitle.setVisibility(show?View.VISIBLE:View.GONE);fileList.setVisibility(show?View.VISIBLE:View.GONE);if(show){refreshLibrary();pageScroll.post(()->pageScroll.smoothScrollTo(0,libraryTitle.getTop()));}});
         browser.loadUrl("https://www.google.com");
@@ -760,6 +817,53 @@ public class MainActivity extends Activity {
             play.setOnClickListener(v->openFile(f));share.setOnClickListener(v->shareFile(f));del.setOnClickListener(v->{if(f.delete()){refreshLibrary();toast(tr("Delete"));}});
         }
     }
+    private boolean isAudioFile(File f){
+        String ext=android.webkit.MimeTypeMap.getFileExtensionFromUrl(f.getName()).toLowerCase(Locale.ROOT);
+        String mime=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+        return (mime!=null&&mime.startsWith("audio/"))||f.getName().toLowerCase(Locale.ROOT).matches(".*\\.(mp3|m4a|aac|ogg|opus|wav|flac|amr)$");
+    }
+    private boolean isVideoFile(File f){
+        String ext=android.webkit.MimeTypeMap.getFileExtensionFromUrl(f.getName()).toLowerCase(Locale.ROOT);
+        String mime=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+        return (mime!=null&&mime.startsWith("video/"))||f.getName().toLowerCase(Locale.ROOT).matches(".*\\.(mp4|mkv|webm|3gp|mov|avi|mpeg|mpg|ts|m4v)$");
+    }
+    private void refreshMusicLibrary(){
+        if(musicList==null)return;musicList.removeAllViews();File[] fs=downloadDir().listFiles();boolean any=false;
+        if(fs!=null)for(File f:fs){if(!f.isFile()||f.getName().endsWith(".part")||!isAudioFile(f))continue;any=true;
+            LinearLayout row=new LinearLayout(this);row.setGravity(android.view.Gravity.CENTER_VERTICAL);row.setPadding(dp(8),dp(5),dp(8),dp(5));row.setBackgroundColor(PANEL);
+            TextView name=text(f.getName(),13,Color.WHITE);row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+            Button play=button(tr("Play"),true);row.addView(play,new LinearLayout.LayoutParams(dp(92),dp(40)));
+            play.setOnClickListener(v->playMusicFile(f,play));
+            LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(5);musicList.addView(row,rp);
+        }
+        if(!any)musicList.addView(text(tr("No music files"),13,Color.LTGRAY));
+    }
+    private void playMusicFile(File file,Button sourceButton){
+        try{
+            stopMusicPlayback();
+            musicPlayer=new MediaPlayer();musicPlayer.setDataSource(file.getAbsolutePath());
+            musicNowPlaying.setText(tr("Now playing")+": "+file.getName());
+            sourceButton.setText(tr("Waiting"));
+            musicPlayer.setOnPreparedListener(mp->{mp.start();sourceButton.setText(tr("Pause"));});
+            musicPlayer.setOnCompletionListener(mp->{sourceButton.setText(tr("Play"));musicNowPlaying.setText(tr("Now playing")+": —");});
+            musicPlayer.setOnErrorListener((mp,what,extra)->{toast("Cannot play this audio file");stopMusicPlayback();return true;});
+            musicPlayer.prepareAsync();
+        }catch(Exception e){toast("Cannot play audio: "+e.getMessage());stopMusicPlayback();}
+    }
+    private void stopMusicPlayback(){
+        if(musicPlayer!=null){try{if(musicPlayer.isPlaying())musicPlayer.stop();}catch(Exception ignored){}try{musicPlayer.release();}catch(Exception ignored){}musicPlayer=null;}
+    }
+    private void refreshVideoLibrary(){
+        if(videoList==null)return;videoList.removeAllViews();File[] fs=downloadDir().listFiles();boolean any=false;
+        if(fs!=null)for(File f:fs){if(!f.isFile()||f.getName().endsWith(".part")||!isVideoFile(f))continue;any=true;
+            LinearLayout row=new LinearLayout(this);row.setGravity(android.view.Gravity.CENTER_VERTICAL);row.setPadding(dp(8),dp(5),dp(8),dp(5));row.setBackgroundColor(PANEL);
+            TextView name=text(f.getName(),13,Color.WHITE);row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+            Button play=button(tr("Play"),true);row.addView(play,new LinearLayout.LayoutParams(dp(92),dp(40)));
+            play.setOnClickListener(v->{stopMusicPlayback();videoPlayer.setVideoPath(f.getAbsolutePath());videoPlayer.start();});
+            LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(5);videoList.addView(row,rp);
+        }
+        if(!any)videoList.addView(text(tr("No video files"),13,Color.LTGRAY));
+    }
     private boolean isMediaFile(File f){
         String ext=android.webkit.MimeTypeMap.getFileExtensionFromUrl(f.getName()).toLowerCase(Locale.ROOT);
         String mime=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
@@ -891,6 +995,8 @@ public class MainActivity extends Activity {
     @Override public void onBackPressed(){if(browser!=null&&browser.canGoBack())browser.goBack();else super.onBackPressed();}
     @Override protected void onDestroy(){
         // Transfers run under DownloadKeepAliveService; keep them alive when the Activity closes.
+        stopMusicPlayback();
+        if(videoPlayer!=null)videoPlayer.stopPlayback();
         if(browser!=null)browser.destroy();
         super.onDestroy();
     }
