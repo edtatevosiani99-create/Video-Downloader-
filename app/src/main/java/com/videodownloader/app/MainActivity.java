@@ -890,7 +890,6 @@ public class MainActivity extends Activity {
                 stopMusicPlayback();
                 try{
                     videoPlayer.stopPlayback();
-                    videoPlayer.setVideoURI(Uri.fromFile(f));
                     videoPlayer.requestFocus();
                     videoPlayer.setVideoPath(f.getAbsolutePath());
                     videoPlayerFrame.setVisibility(View.VISIBLE);
