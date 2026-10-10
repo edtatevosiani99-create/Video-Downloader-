@@ -235,8 +235,9 @@ public class MainActivity extends Activity {
         videoPlayer.setMediaController(mediaController);
         videoPlayer.setOnPreparedListener(mp->{
             mp.setOnVideoSizeChangedListener((player,width,height)->{
+                // Keep controls anchored to the VideoView; the outer frame can place them below.
                 videoPlayerFrame.requestLayout();
-                mediaController.setAnchorView(videoPlayerFrame);
+                videoPlayer.requestLayout();
             });
             videoPlayerFrame.setVisibility(View.VISIBLE);
             videoPlayer.start();
@@ -734,7 +735,9 @@ public class MainActivity extends Activity {
                         .addOption("--audio-format","mp3")
                         .addOption("--audio-quality","192K");
                 }else{
-                    request.addOption("-f","best[height<=720]/best");
+                    // Prefer one progressive stream containing BOTH audio and video.
+                    // Separate tracks require FFmpeg to merge and can lead to sound-only playback.
+                    request.addOption("-f","best[height<=720][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]/best");
                 }
 
                 response=YtDlp.execute(request,callback);
