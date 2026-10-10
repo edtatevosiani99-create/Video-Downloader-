@@ -833,7 +833,14 @@ public class MainActivity extends Activity {
             LinearLayout row=new LinearLayout(this);row.setGravity(android.view.Gravity.CENTER_VERTICAL);row.setPadding(dp(8),dp(5),dp(8),dp(5));row.setBackgroundColor(PANEL);
             TextView name=text(f.getName(),13,Color.WHITE);row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
             Button play=button(tr("Play"),true);row.addView(play,new LinearLayout.LayoutParams(dp(92),dp(40)));
-            play.setOnClickListener(v->playMusicFile(f,play));
+            play.setOnClickListener(v->{
+                if(musicPlayer!=null&&musicNowPlaying.getText().toString().equals(tr("Now playing")+": "+f.getName())){
+                    try{
+                        if(musicPlayer.isPlaying()){musicPlayer.pause();play.setText(tr("Play"));}
+                        else{musicPlayer.start();play.setText(tr("Pause"));}
+                    }catch(Exception e){playMusicFile(f,play);}
+                }else playMusicFile(f,play);
+            });
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(5);musicList.addView(row,rp);
         }
         if(!any)musicList.addView(text(tr("No music files"),13,Color.LTGRAY));
