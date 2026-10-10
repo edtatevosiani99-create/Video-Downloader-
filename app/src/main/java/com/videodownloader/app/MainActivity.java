@@ -735,11 +735,14 @@ public class MainActivity extends Activity {
                 }
                 if(haveCookies)request.addOption("--cookies",cookieFile.getAbsolutePath());
                 if(audioOnly){
-                    // Produce MP3 directly instead of leaving the source audio/video beside it.
-                    request.addOption("-f","bestaudio/best")
+                    // Audio mode must yield an MP3 only: select audio-only source formats,
+                    // force MP3 post-processing, and never preserve the intermediate video.
+                    request.addOption("-f","bestaudio")
                         .addOption("-x")
                         .addOption("--audio-format","mp3")
-                        .addOption("--audio-quality","192K");
+                        .addOption("--audio-quality","192K")
+                        .addOption("--no-keep-video")
+                        .addOption("--force-overwrites");
                 }else{
                     // Prefer one progressive stream containing BOTH audio and video.
                     // Separate tracks require FFmpeg to merge and can lead to sound-only playback.
@@ -780,8 +783,13 @@ public class MainActivity extends Activity {
             if(files!=null)for(File f:files){
                 String n=f.getName().toLowerCase(Locale.ROOT);
                 boolean temporary=n.endsWith(".part")||n.endsWith(".ytdl")||n.endsWith(".temp")||n.endsWith(".tmp");
-                boolean requestedFormat=!audioOnly||n.endsWith(".mp3");
-                if(f.isFile()&&f.lastModified()>=startedAt-2000&&!temporary&&requestedFormat&&!n.equals(name.toLowerCase(Locale.ROOT))){
+                // Restrict candidates to files created by this exact task and to the
+                // selected format. This prevents an MP4 from a previous/parallel task
+                // being reported as the result of an MP3 request.
+                boolean requestedFormat=audioOnly?n.endsWith(".mp3"):
+                    (n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".webm")||n.endsWith(".mkv")||n.endsWith(".mov")||n.endsWith(".3gp"));
+                boolean belongsToTask=n.startsWith(("vd_"+startedAt+"_").toLowerCase(Locale.ROOT));
+                if(f.isFile()&&belongsToTask&&f.lastModified()>=startedAt-2000&&!temporary&&requestedFormat&&!n.equals(name.toLowerCase(Locale.ROOT))){
                     if(saved==null||f.lastModified()>saved.lastModified())saved=f;
                 }
             }
