@@ -746,7 +746,7 @@ public class MainActivity extends Activity {
                 }else{
                     // Prefer one progressive stream containing BOTH audio and video.
                     // Separate tracks require FFmpeg to merge and can lead to sound-only playback.
-                    request.addOption("-f","best[ext=mp4][height<=720][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]/best[height<=720][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]");
+                    request.addOption("-f","best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]/best[height<=720][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]");
                 }
 
                 response=YtDlp.execute(request,callback);
