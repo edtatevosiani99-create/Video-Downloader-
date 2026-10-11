@@ -749,7 +749,7 @@ public class MainActivity extends Activity {
                     // Prefer a progressive H.264/AAC MP4 that Android VideoView can decode reliably.
                     // Only fall back to progressive MP4 with both streams; do not select split tracks
                     // because this app does not merge them with FFmpeg.
-                    request.addOption("-f","best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]");
+                    request.addOption("-f","best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]");
                 }
 
                 response=YtDlp.execute(request,callback);
@@ -800,6 +800,23 @@ public class MainActivity extends Activity {
             if(saved==null){
                 if(audioOnly)throw new Exception("Audio extraction finished without an MP3 file. The source may not provide audio or the extractor could not convert it.");
                 throw new Exception("The extractor reported success, but no new output file was found. Try again and check available storage.");
+            }
+            if(!audioOnly){
+                // Reject audio-only MP4 files: Android can play their sound while showing a black picture.
+                android.media.MediaExtractor probe=new android.media.MediaExtractor();
+                boolean hasVideoTrack=false;
+                try{
+                    probe.setDataSource(saved.getAbsolutePath());
+                    for(int i=0;i<probe.getTrackCount();i++){
+                        MediaFormat track=probe.getTrackFormat(i);
+                        String trackMime=track.containsKey(MediaFormat.KEY_MIME)?track.getString(MediaFormat.KEY_MIME):null;
+                        if(trackMime!=null&&trackMime.startsWith("video/")){hasVideoTrack=true;break;}
+                    }
+                }finally{probe.release();}
+                if(!hasVideoTrack){
+                    saved.delete();
+                    throw new Exception("The source returned an MP4 without a video track. No broken file was saved; try another video or quality.");
+                }
             }
             done=true;tasks.remove(url);persistPending(url,name,true);
             if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
