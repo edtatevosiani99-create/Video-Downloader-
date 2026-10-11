@@ -1061,8 +1061,20 @@ public class MainActivity extends Activity {
                 if(lame==null)throw new Exception("No decoded audio samples");
                 int tail=lame.flush(encoded);if(tail>0)out.write(encoded,0,tail);out.flush();out.close();out=null;
                 if(!output.exists()||output.length()==0)throw new Exception("MP3 output is empty");
-                File saved=output;publishToMediaLibrary(saved);
-                main.post(()->{if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}toast("MP3 saved: "+saved.getName());refreshLibrary();});
+                File saved=output;
+                // Publish the final MP3, not the source container, into the Music library.
+                publishToMediaLibrary(saved);
+                if(source!=null && source.isFile() && !source.getAbsolutePath().equals(saved.getAbsolutePath())) {
+                    // This source is only an intermediate audio stream; remove it after
+                    // a non-empty MP3 has been produced successfully.
+                    source.delete();
+                }
+                main.post(()->{
+                    if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}
+                    status.setText(tr("Audio saved")+": "+saved.getName());
+                    toast("MP3 saved: "+saved.getName());
+                    refreshLibrary();
+                });
             }catch(Exception e){
                 if(output!=null)output.delete();
                 String error=e.getMessage()==null?"":e.getMessage();
