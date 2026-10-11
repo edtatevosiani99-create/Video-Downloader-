@@ -738,13 +738,18 @@ public class MainActivity extends Activity {
                     // This Android build cannot rely on yt-dlp's FFmpeg postprocessor.
                     // Download a single audio stream first, then encode it to MP3 with
                     // the app's MediaCodec + LAME converter after the transfer completes.
-                    request.addOption("-f","bestaudio[ext=m4a]/bestaudio/best")
+                    // Never fall back to "best": that can select a video+audio MP4 when the user asked for MP3.
+                    // Select an audio-only format, then convert the downloaded audio container locally.
+                    request.addOption("-f","bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio")
                         .addOption("--force-overwrites");
                 }else{
                     // Choose a progressive MP4 with H.264 video and AAC audio whenever
                     // available. Avoid separate video/audio tracks because this build
                     // cannot reliably merge them without an FFmpeg binary.
-                    request.addOption("-f","best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][vcodec!=none][acodec!=none]/best[height<=720][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]");
+                    // Prefer a progressive H.264/AAC MP4 that Android VideoView can decode reliably.
+                    // Only fall back to progressive MP4 with both streams; do not select split tracks
+                    // because this app does not merge them with FFmpeg.
+                    request.addOption("-f","best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]");
                 }
 
                 response=YtDlp.execute(request,callback);
@@ -785,7 +790,7 @@ public class MainActivity extends Activity {
                 // selected format. This prevents an MP4 from a previous/parallel task
                 // being reported as the result of an MP3 request.
                 boolean requestedFormat=audioOnly?
-                    (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")):
+                    (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")||n.endsWith(".mka")||n.endsWith(".wav")||n.endsWith(".flac")):
                     (n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".3gp"));
                 boolean belongsToTask=n.startsWith(("vd_"+startedAt+"_").toLowerCase(Locale.ROOT));
                 if(f.isFile()&&belongsToTask&&f.lastModified()>=startedAt-2000&&!temporary&&requestedFormat&&!n.equals(name.toLowerCase(Locale.ROOT))){
@@ -928,13 +933,23 @@ public class MainActivity extends Activity {
                     videoPlayer.setVisibility(View.VISIBLE);
                     videoPlayer.requestFocus();
                     videoPlayerFrame.setVisibility(View.VISIBLE);
-                    videoPlayer.setVideoURI(Uri.fromFile(f));
+                    // Install listeners before setVideoURI so preparation cannot race the listener.
                     videoPlayer.setOnPreparedListener(mp->{
                         mp.setScreenOnWhilePlaying(true);
+                        mp.setOnVideoSizeChangedListener((player,width,height)->{
+                            videoPlayerFrame.requestLayout();
+                            videoPlayer.requestLayout();
+                        });
                         videoPlayer.setVisibility(View.VISIBLE);
                         videoPlayerFrame.setVisibility(View.VISIBLE);
                         videoPlayer.start();
                     });
+                    videoPlayer.setOnErrorListener((mp,what,extra)->{
+                        android.util.Log.e("VideoDownloader","VideoView playback error what="+what+" extra="+extra+" file="+f.getName());
+                        toast("Cannot play this video. Try downloading the H.264 MP4 version.");
+                        return true;
+                    });
+                    videoPlayer.setVideoURI(Uri.fromFile(f));
                 }catch(Exception e){toast("Cannot open video: "+e.getMessage());}
             });
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(5);videoList.addView(row,rp);
