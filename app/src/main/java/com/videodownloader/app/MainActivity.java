@@ -633,8 +633,22 @@ public class MainActivity extends Activity {
                 if(cancelled){part.delete();throw new InterruptedException("Cancelled");}
                 if(dest.exists())dest=new File(downloadDir(),System.currentTimeMillis()+"_"+name);
                 if(!part.renameTo(dest))throw new Exception("Could not save file");
-                final File saved=dest;publishToMediaLibrary(saved);done=true;tasks.remove(url);persistPending(url,name,true);if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
-                postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,100,true);main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();if(audioOnly&&!saved.getName().toLowerCase(Locale.ROOT).endsWith(".mp3"))convertAudioToMp3(saved,null,192);});
+                final File saved=dest;done=true;tasks.remove(url);persistPending(url,name,true);
+                if(audioOnly&&!saved.getName().toLowerCase(Locale.ROOT).endsWith(".mp3")){
+                    // Audio-only mode must never publish or leave its source container (which
+                    // may be M4A/WebM and can be mistaken for a video by some file managers).
+                    // Only publish the finished MP3; delete the intermediate after conversion succeeds.
+                    if(viewUpdate!=null)viewUpdate.set(95,"Converting audio to MP3…");
+                    main.post(()->{
+                        status.setText("Converting audio to MP3…");
+                        convertAudioToMp3(saved,null,192,true);
+                    });
+                }else{
+                    publishToMediaLibrary(saved);
+                    if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
+                    postNotification(2000 + (Math.abs(url.hashCode()) % 500),name,100,true);
+                    main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();refreshMusicLibrary();});
+                }
             }catch(InterruptedException e){if(!preservePartial){part.delete();persistPending(url,name,true);}done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,preservePartial?tr("Waiting"):tr("Cancel"));}
             catch(Exception e){done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);String error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();if(error.length()>900)error=error.substring(error.length()-900);final String visibleError=error;if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+visibleError);main.post(()->{status.setText(tr("Download failed")+": "+visibleError);Toast.makeText(MainActivity.this,"Download failed: "+visibleError,Toast.LENGTH_LONG).show();});}
             finally{
