@@ -749,7 +749,7 @@ public class MainActivity extends Activity {
                     // Prefer a progressive H.264/AAC MP4 that Android VideoView can decode reliably.
                     // Only fall back to progressive MP4 with both streams; do not select split tracks
                     // because this app does not merge them with FFmpeg.
-                    request.addOption("-f","best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]");
+                    request.addOption("-f","best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]");
                 }
 
                 response=YtDlp.execute(request,callback);
@@ -827,7 +827,7 @@ public class MainActivity extends Activity {
                 // depend on yt-dlp postprocessing, which requires FFmpeg on Android.
                 main.post(()->{
                     status.setText(tr("Downloading")+": converting audio to MP3…");
-                    convertAudioToMp3(completedFile,null,192);
+                    convertAudioToMp3(completedFile,null,192,true);
                 });
             }else{
                 publishToMediaLibrary(completedFile);
@@ -1017,7 +1017,8 @@ public class MainActivity extends Activity {
             .setItems(new String[]{"128 kbps · smaller file","192 kbps · recommended","320 kbps · highest bitrate"},(dialog,which)->convertAudioToMp3(source,action,new int[]{128,192,320}[which]))
             .setNegativeButton("Cancel",null).show();
     }
-    private void convertAudioToMp3(File source,Button action,int bitrate){
+    private void convertAudioToMp3(File source,Button action,int bitrate){convertAudioToMp3(source,action,bitrate,false);}
+    private void convertAudioToMp3(File source,Button action,int bitrate,boolean deleteSourceAfterSuccess){
         if(action!=null){action.setEnabled(false);action.setText(tr("Waiting"));}
         new Thread(()->{
             File output=null;MediaExtractor extractor=null;MediaCodec decoder=null;AndroidLame lame=null;FileOutputStream out=null;
@@ -1096,9 +1097,9 @@ public class MainActivity extends Activity {
                 File saved=output;
                 // Publish the final MP3, not the source container, into the Music library.
                 publishToMediaLibrary(saved);
-                if(source!=null && source.isFile() && !source.getAbsolutePath().equals(saved.getAbsolutePath())) {
-                    // This source is only an intermediate audio stream; remove it after
-                    // a non-empty MP3 has been produced successfully.
+                if(deleteSourceAfterSuccess && source!=null && source.isFile() && !source.getAbsolutePath().equals(saved.getAbsolutePath())) {
+                    // Delete only the temporary audio container created for an MP3 request.
+                    // Never delete a user's original video when they choose "Extract MP3".
                     source.delete();
                 }
                 main.post(()->{
@@ -1106,6 +1107,7 @@ public class MainActivity extends Activity {
                     status.setText(tr("Audio saved")+": "+saved.getName());
                     toast("MP3 saved: "+saved.getName());
                     refreshLibrary();
+                    refreshMusicLibrary();
                 });
             }catch(Exception e){
                 if(output!=null)output.delete();
