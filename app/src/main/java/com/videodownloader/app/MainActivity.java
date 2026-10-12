@@ -857,7 +857,7 @@ public class MainActivity extends Activity {
                     throw new Exception("The source returned an MP4 without a video track. No broken file was saved; try another video or quality.");
                 }
                 if(viewUpdate!=null)viewUpdate.set(99,"Preparing MP4 for Android playback…");
-                normalizeVideoForPlayback(saved);
+                // The extractor already selects progressive H.264/AAC MP4. Avoid a second full transcode here: it is expensive on phones and can cause the app to be killed.
             }
             done=true;tasks.remove(url);persistPending(url,name,true);
             if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
@@ -1062,40 +1062,103 @@ public class MainActivity extends Activity {
     private void convertAudioToMp3(File source,Button action,int bitrate,boolean deleteSourceAfterSuccess){
         if(action!=null){action.setEnabled(false);action.setText(tr("Waiting"));}
         new Thread(()->{
-            File output=null;
+            File output=null;MediaExtractor extractor=null;MediaCodec decoder=null;AndroidLame lame=null;FileOutputStream out=null;
+            boolean decoderStarted=false;boolean inputDone=false;boolean outputDone=false;int samples=0;
             try{
-                if(source==null||!source.isFile()||source.length()==0)throw new Exception("Source audio file is missing or empty");
+                extractor=new MediaExtractor();extractor.setDataSource(source.getAbsolutePath());
+                int audioTrack=-1;MediaFormat inputFormat=null;
+                for(int i=0;i<extractor.getTrackCount();i++){
+                    MediaFormat format=extractor.getTrackFormat(i);
+                    String mime=format.getString(MediaFormat.KEY_MIME);
+                    if(mime!=null&&mime.startsWith("audio/")){audioTrack=i;inputFormat=format;break;}
+                }
+                if(audioTrack<0)throw new Exception("No audio track found");
+                int fallbackRate=inputFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)?inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE):44100;
+                int fallbackChannels=inputFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)?inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT):2;
+                String mime=inputFormat.getString(MediaFormat.KEY_MIME);
+                decoder=MediaCodec.createDecoderByType(mime);decoder.configure(inputFormat,null,null,0);decoder.start();decoderStarted=true;extractor.selectTrack(audioTrack);
                 String base=source.getName();int dot=base.lastIndexOf('.');if(dot>0)base=base.substring(0,dot);
                 output=new File(downloadDir(),safeName(base+"_audio.mp3"));
-                if(output.getAbsolutePath().equals(source.getAbsolutePath())||output.exists())
-                    output=new File(downloadDir(),safeName(base+"_audio_"+System.currentTimeMillis()+".mp3"));
-                String[] args={"-y","-i",source.getAbsolutePath(),"-vn","-codec:a","libmp3lame","-b:a",bitrate+"k","-ar","44100","-ac","2",output.getAbsolutePath()};
-                com.arthenica.ffmpegkit.FFmpegSession session=com.arthenica.ffmpegkit.FFmpegKit.executeWithArguments(args);
-                if(session==null||!com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.getReturnCode())){
-                    String code=session==null?"no session":String.valueOf(session.getReturnCode());
-                    String details=session==null?"":session.getOutput();
-                    if(details!=null&&details.length()>500)details=details.substring(details.length()-500);
-                    throw new Exception("FFmpeg MP3 conversion failed ("+code+")"+(details==null||details.trim().isEmpty()?"":": "+details));
+                if(output.exists())output=new File(downloadDir(),safeName(base+"_audio_"+System.currentTimeMillis()+".mp3"));
+                out=new FileOutputStream(output);
+                MediaCodec.BufferInfo info=new MediaCodec.BufferInfo();byte[] encoded=new byte[256*1024];
+                int sampleRate=fallbackRate,channels=fallbackChannels;
+                while(!outputDone){
+                    if(!inputDone){
+                        int inputIndex=decoder.dequeueInputBuffer(10000);
+                        if(inputIndex>=0){
+                            ByteBuffer input=decoder.getInputBuffer(inputIndex);
+                            if(input==null)throw new Exception("Audio decoder input unavailable");
+                            input.clear();int size=extractor.readSampleData(input,0);
+                            if(size<0){decoder.queueInputBuffer(inputIndex,0,0,0,MediaCodec.BUFFER_FLAG_END_OF_STREAM);inputDone=true;}
+                            else{long pts=extractor.getSampleTime();decoder.queueInputBuffer(inputIndex,0,size,Math.max(0,pts),0);extractor.advance();}
+                        }
+                    }
+                    int outputIndex=decoder.dequeueOutputBuffer(info,10000);
+                    if(outputIndex==MediaCodec.INFO_OUTPUT_FORMAT_CHANGED){
+                        MediaFormat decoded=decoder.getOutputFormat();
+                        if(decoded.containsKey(MediaFormat.KEY_SAMPLE_RATE))sampleRate=decoded.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                        if(decoded.containsKey(MediaFormat.KEY_CHANNEL_COUNT))channels=decoded.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                    }else if(outputIndex>=0){
+                        if(info.size>0&&(info.flags&MediaCodec.BUFFER_FLAG_CODEC_CONFIG)==0){
+                            if(lame==null){
+                                if(sampleRate<8000||sampleRate>48000)throw new Exception("This audio sample rate is not supported for MP3 conversion");
+                                if(channels<1||channels>2)throw new Exception("MP3 conversion supports mono or stereo audio");
+                                LameBuilder builder=new LameBuilder().setInSampleRate(sampleRate).setOutSampleRate(sampleRate).setOutChannels(channels).setOutBitrate(bitrate).setQuality(5);
+                                if(channels==1)builder.setMode(LameBuilder.Mode.MONO);else builder.setMode(LameBuilder.Mode.JSTEREO);
+                                lame=builder.build();
+                            }
+                            ByteBuffer pcm=decoder.getOutputBuffer(outputIndex);
+                            if(pcm==null)throw new Exception("Audio decoder output unavailable");
+                            pcm.position(info.offset);pcm.limit(info.offset+info.size);pcm=pcm.slice().order(ByteOrder.LITTLE_ENDIAN);
+                            boolean floatPcm=false;
+                            if(Build.VERSION.SDK_INT>=24){
+                                MediaFormat decoded=decoder.getOutputFormat();
+                                floatPcm=decoded.containsKey(MediaFormat.KEY_PCM_ENCODING)&&decoded.getInteger(MediaFormat.KEY_PCM_ENCODING)==android.media.AudioFormat.ENCODING_PCM_FLOAT;
+                            }
+                            short[] pcmSamples;
+                            if(floatPcm){
+                                int count=pcm.remaining()/4;pcmSamples=new short[count];
+                                for(int i=0;i<count;i++){float value=pcm.getFloat();value=Math.max(-1f,Math.min(1f,value));pcmSamples[i]=(short)(value*32767f);}
+                            }else{
+                                int count=pcm.remaining()/2;pcmSamples=new short[count];
+                                for(int i=0;i<count;i++)pcmSamples[i]=pcm.getShort();
+                            }
+                            int produced=lame.encodeBufferInterLeaved(pcmSamples,pcmSamples.length/channels,encoded);
+                            if(produced>0)out.write(encoded,0,produced);
+                            samples+=pcmSamples.length;
+                        }
+                        boolean eos=(info.flags&MediaCodec.BUFFER_FLAG_END_OF_STREAM)!=0;
+                        decoder.releaseOutputBuffer(outputIndex,false);if(eos)outputDone=true;
+                    }
                 }
+                if(lame==null)throw new Exception("No decoded audio samples");
+                int tail=lame.flush(encoded);if(tail>0)out.write(encoded,0,tail);out.flush();out.close();out=null;
                 if(!output.exists()||output.length()==0)throw new Exception("MP3 output is empty");
                 File saved=output;
+                // Publish the final MP3, not the source container, into the Music library.
                 publishToMediaLibrary(saved);
-                if(deleteSourceAfterSuccess&&source.isFile()&&!source.getAbsolutePath().equals(saved.getAbsolutePath()))source.delete();
+                if(deleteSourceAfterSuccess && source!=null && source.isFile() && !source.getAbsolutePath().equals(saved.getAbsolutePath())) {
+                    // Delete only the temporary audio container created for an MP3 request.
+                    // Never delete a user's original video when they choose "Extract MP3".
+                    source.delete();
+                }
                 main.post(()->{
                     if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}
                     status.setText(tr("Audio saved")+": "+saved.getName());
                     toast("MP3 saved: "+saved.getName());
-                    refreshLibrary();refreshMusicLibrary();
+                    refreshLibrary();
+                    refreshMusicLibrary();
                 });
             }catch(Exception e){
                 if(output!=null)output.delete();
-                String error=e.getMessage()==null?"Unknown conversion error":e.getMessage();
-                android.util.Log.e("VideoDownloader","MP3 conversion failed",e);
-                main.post(()->{
-                    if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}
-                    status.setText(tr("Audio extraction failed")+": "+error);
-                    toast(tr("Audio extraction failed")+": "+error);
-                });
+                String error=e.getMessage()==null?"":e.getMessage();
+                main.post(()->{if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}toast(tr("Audio extraction failed")+(error.isEmpty()?"":": "+error));});
+            }finally{
+                if(out!=null)try{out.close();}catch(Exception ignored){}
+                if(lame!=null)try{lame.close();}catch(Exception ignored){}
+                if(decoder!=null){if(decoderStarted)try{decoder.stop();}catch(Exception ignored){}try{decoder.release();}catch(Exception ignored){}}
+                if(extractor!=null)try{extractor.release();}catch(Exception ignored){}
             }
         },"mp3-converter").start();
     }
