@@ -345,7 +345,7 @@ public class MainActivity extends Activity {
         String ua=userAgent;
         if(ua==null||ua.trim().isEmpty())ua=browser!=null?browser.getSettings().getUserAgentString():"VideoDownloader/1.1";
         String displayName=audioOnly?"Audio MP3":"Online video";
-        persistPending(raw,displayName,false);
+        persistPending(raw,displayName,false,audioOnly);
         Task t=new Task(raw,displayName,ua,true,audioOnly);tasks.put(raw,t);DownloadKeepAliveService.markActive(raw);
         try{Intent keepAlive=new Intent(this,DownloadKeepAliveService.class);keepAlive.setAction(DownloadKeepAliveService.ACTION_START);if(Build.VERSION.SDK_INT>=26)startForegroundService(keepAlive);else startService(keepAlive);}catch(Exception ignored){}
         addTaskView(t);status.setText(tr("Download started"));t.start();
@@ -454,7 +454,7 @@ public class MainActivity extends Activity {
         final String name=safeName(savedName==null?android.webkit.URLUtil.guessFileName(url,disposition,mime):savedName);
         if(tasks.containsKey(url)){toast("Already in download queue");return;}
         if(!url.matches("(?i)^https?://.+")){toast("Only direct HTTP/HTTPS links are supported");return;}
-        persistPending(url,name,false);
+        persistPending(url,name,false,audioOnly);
         String ua=userAgent;if(ua==null||ua.trim().isEmpty())ua=browser!=null?browser.getSettings().getUserAgentString():"VideoDownloader/1.1";
         Task t=new Task(url,name,ua,false,audioOnly);tasks.put(url,t);DownloadKeepAliveService.markActive(url);
         try{Intent keepAlive=new Intent(this,DownloadKeepAliveService.class);keepAlive.setAction(DownloadKeepAliveService.ACTION_START);if(Build.VERSION.SDK_INT>=26)startForegroundService(keepAlive);else startService(keepAlive);}catch(Exception ignored){}
@@ -518,6 +518,9 @@ public class MainActivity extends Activity {
         },"hls-inspect").start();
     }
     private synchronized void persistPending(String url,String name,boolean remove){
+        persistPending(url,name,remove,false);
+    }
+    private synchronized void persistPending(String url,String name,boolean remove,boolean audioOnly){
         try{
             android.content.SharedPreferences prefs=getSharedPreferences("downloads",MODE_PRIVATE);
             JSONArray old=new JSONArray(prefs.getString("pending","[]"));JSONArray next=new JSONArray();
@@ -526,7 +529,7 @@ public class MainActivity extends Activity {
                 if(item==null||url.equals(item.optString("url")))continue;
                 next.put(item);
             }
-            if(!remove){JSONObject item=new JSONObject();item.put("url",url);item.put("name",name);next.put(item);}
+            if(!remove){JSONObject item=new JSONObject();item.put("url",url);item.put("name",name);item.put("audioOnly",audioOnly);next.put(item);}
             prefs.edit().putString("pending",next.toString()).apply();
         }catch(Exception ignored){}
     }
@@ -536,7 +539,8 @@ public class MainActivity extends Activity {
             for(int i=0;i<pending.length();i++){
                 JSONObject item=pending.optJSONObject(i);if(item==null)continue;
                 String url=item.optString("url","");String name=item.optString("name","download");
-                if(!url.isEmpty()&&!DownloadKeepAliveService.isActive(url))startDownload(url,null,null,name,null);
+                boolean audioOnly=item.optBoolean("audioOnly",false);
+                if(!url.isEmpty()&&!DownloadKeepAliveService.isActive(url))startDownload(url,null,null,name,null,audioOnly);
             }
         }catch(Exception ignored){}
     }
