@@ -866,11 +866,9 @@ public class MainActivity extends Activity {
                     saved.delete();
                     throw new Exception("The source returned an MP4 without a video track. No broken file was saved; try another video or quality.");
                 }
-                if(viewUpdate!=null)viewUpdate.set(92,"Converting video for Android playback…");
-                // Some sources carry a video track that the device decoder cannot render,
-                // producing sound with a black picture. Normalize the completed MP4 to a
-                // broadly supported Android video format before publishing it.
-                normalizeVideoForPlayback(saved);
+                // Do not run an in-process FFmpeg transcode here: on some phones it can
+                // terminate the app on large files. Keep the downloaded H.264/AAC MP4 intact
+                // and publish it only after confirming that a video track exists.
                 if(cancelled)throw new InterruptedException("Cancelled");
             }
             done=true;tasks.remove(url);persistPending(url,name,true);
