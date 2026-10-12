@@ -1036,8 +1036,8 @@ public class MainActivity extends Activity {
         if(videoPlayerFrame==null||root==null)return;
         // Reparenting a VideoView can recreate its Surface. Save playback state and
         // restore the exact position after the surface is attached again.
-        final int savedPosition;
-        final boolean wasPlaying;
+        int savedPosition=0;
+        boolean wasPlaying=false;
         try{
             savedPosition=videoPlayer.getCurrentPosition();
             wasPlaying=videoPlayer.isPlaying();
