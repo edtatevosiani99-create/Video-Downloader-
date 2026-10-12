@@ -83,6 +83,8 @@ public class MainActivity extends Activity {
     private Button videoFullscreenButton;
     private boolean videoFullscreen=false;
     private int previousOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+    private int resumeVideoPositionAfterFullscreen=-1;
+    private boolean resumeVideoWasPlaying=false;
     private MediaPlayer musicPlayer;
     private TextView musicNowPlaying;
     private EditText urlInput;
@@ -240,7 +242,15 @@ public class MainActivity extends Activity {
                 videoPlayer.requestLayout();
             });
             videoPlayerFrame.setVisibility(View.VISIBLE);
-            videoPlayer.start();
+            if(resumeVideoPositionAfterFullscreen>=0){
+                int resumeAt=resumeVideoPositionAfterFullscreen;
+                boolean shouldPlay=resumeVideoWasPlaying;
+                resumeVideoPositionAfterFullscreen=-1;
+                videoPlayer.seekTo(resumeAt);
+                if(shouldPlay)videoPlayer.start();
+            }else{
+                videoPlayer.start();
+            }
         });
         videoPlayer.setOnErrorListener((mp,what,extra)->{
             toast("Cannot play this video. The format may not be supported.");
@@ -1000,7 +1010,15 @@ public class MainActivity extends Activity {
                         });
                         videoPlayer.setVisibility(View.VISIBLE);
                         videoPlayerFrame.setVisibility(View.VISIBLE);
-                        videoPlayer.start();
+                        if(resumeVideoPositionAfterFullscreen>=0){
+                            int resumeAt=resumeVideoPositionAfterFullscreen;
+                            boolean shouldPlay=resumeVideoWasPlaying;
+                            resumeVideoPositionAfterFullscreen=-1;
+                            videoPlayer.seekTo(resumeAt);
+                            if(shouldPlay)videoPlayer.start();
+                        }else{
+                            videoPlayer.start();
+                        }
                     });
                     videoPlayer.setOnErrorListener((mp,what,extra)->{
                         android.util.Log.e("VideoDownloader","VideoView playback error what="+what+" extra="+extra+" file="+f.getName());
@@ -1016,6 +1034,20 @@ public class MainActivity extends Activity {
     }
     private void toggleVideoFullscreen(){
         if(videoPlayerFrame==null||root==null)return;
+        // Reparenting a VideoView can recreate its Surface. Save playback state and
+        // restore the exact position after the surface is attached again.
+        final int savedPosition;
+        final boolean wasPlaying;
+        try{
+            savedPosition=videoPlayer.getCurrentPosition();
+            wasPlaying=videoPlayer.isPlaying();
+        }catch(Exception ignored){
+            // If the player is between surface states, use the last known pending position.
+            savedPosition=Math.max(0,resumeVideoPositionAfterFullscreen);
+            wasPlaying=resumeVideoWasPlaying;
+        }
+        resumeVideoPositionAfterFullscreen=savedPosition;
+        resumeVideoWasPlaying=wasPlaying;
         if(!videoFullscreen){
             previousOrientation=getRequestedOrientation();
             videoFullscreen=true;
@@ -1047,6 +1079,14 @@ public class MainActivity extends Activity {
             decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
             setRequestedOrientation(previousOrientation);
         }
+        // Seek only after the view has had a chance to reattach its playback surface.
+        videoPlayer.postDelayed(()->{
+            try{
+                videoPlayer.seekTo(savedPosition);
+                if(wasPlaying)videoPlayer.start();
+                resumeVideoPositionAfterFullscreen=-1;
+            }catch(Exception ignored){}
+        },250);
     }
     private boolean isMediaFile(File f){
         String ext=android.webkit.MimeTypeMap.getFileExtensionFromUrl(f.getName()).toLowerCase(Locale.ROOT);
