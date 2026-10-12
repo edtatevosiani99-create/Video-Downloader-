@@ -866,10 +866,11 @@ public class MainActivity extends Activity {
                     saved.delete();
                     throw new Exception("The source returned an MP4 without a video track. No broken file was saved; try another video or quality.");
                 }
-                // Normalize to broadly supported H.264 Baseline + AAC so VideoView can
-                // render the picture instead of playing audio against a black screen.
-                // Limit output width and FFmpeg threads to reduce memory pressure.
-                normalizeVideoForPlayback(saved);
+                // Do not transcode downloaded videos inside the app: the native FFmpeg
+                // conversion can terminate the process on some phones and leave duplicate
+                // partial MP4 files. The extractor already requests progressive H.264/AAC MP4.
+                // Keep the original validated file intact; playback compatibility is handled
+                // separately from the download task so a playback issue cannot crash a download.
                 if(cancelled)throw new InterruptedException("Cancelled");
             }
             done=true;tasks.remove(url);persistPending(url,name,true);
