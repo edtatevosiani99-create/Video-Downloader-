@@ -1046,8 +1046,10 @@ public class MainActivity extends Activity {
             savedPosition=Math.max(0,resumeVideoPositionAfterFullscreen);
             wasPlaying=resumeVideoWasPlaying;
         }
-        resumeVideoPositionAfterFullscreen=savedPosition;
-        resumeVideoWasPlaying=wasPlaying;
+        final int targetPosition=savedPosition;
+        final boolean targetWasPlaying=wasPlaying;
+        resumeVideoPositionAfterFullscreen=targetPosition;
+        resumeVideoWasPlaying=targetWasPlaying;
         if(!videoFullscreen){
             previousOrientation=getRequestedOrientation();
             videoFullscreen=true;
@@ -1082,8 +1084,8 @@ public class MainActivity extends Activity {
         // Seek only after the view has had a chance to reattach its playback surface.
         videoPlayer.postDelayed(()->{
             try{
-                videoPlayer.seekTo(savedPosition);
-                if(wasPlaying)videoPlayer.start();
+                videoPlayer.seekTo(targetPosition);
+                if(targetWasPlaying)videoPlayer.start();
                 resumeVideoPositionAfterFullscreen=-1;
             }catch(Exception ignored){}
         },250);
