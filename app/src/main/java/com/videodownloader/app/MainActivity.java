@@ -333,7 +333,7 @@ public class MainActivity extends Activity {
         if(source==null||!source.isFile())throw new Exception("Downloaded video file is missing");
         File normalized=new File(source.getParentFile(),source.getName()+".normalized.mp4");
         if(normalized.exists())normalized.delete();
-        String[] args={"-y","-i",source.getAbsolutePath(),"-map","0:v:0","-map","0:a?","-c:v","mpeg4","-q:v","3","-pix_fmt","yuv420p","-c:a","aac","-b:a","128k","-movflags","+faststart",normalized.getAbsolutePath()};
+        String[] args={"-y","-threads","1","-i",source.getAbsolutePath(),"-map","0:v:0","-map","0:a?","-vf","scale=min(854\\,iw):-2","-c:v","libx264","-preset","ultrafast","-profile:v","baseline","-level","3.0","-threads","1","-pix_fmt","yuv420p","-c:a","aac","-b:a","96k","-movflags","+faststart",normalized.getAbsolutePath()};
         com.arthenica.ffmpegkit.FFmpegSession session=com.arthenica.ffmpegkit.FFmpegKit.executeWithArguments(args);
         if(session==null||!com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.getReturnCode())||!normalized.isFile()||normalized.length()==0){
             String code=session==null?"no session":String.valueOf(session.getReturnCode());
@@ -866,9 +866,10 @@ public class MainActivity extends Activity {
                     saved.delete();
                     throw new Exception("The source returned an MP4 without a video track. No broken file was saved; try another video or quality.");
                 }
-                // Do not run an in-process FFmpeg transcode here: on some phones it can
-                // terminate the app on large files. Keep the downloaded H.264/AAC MP4 intact
-                // and publish it only after confirming that a video track exists.
+                // Normalize to broadly supported H.264 Baseline + AAC so VideoView can
+                // render the picture instead of playing audio against a black screen.
+                // Limit output width and FFmpeg threads to reduce memory pressure.
+                normalizeVideoForPlayback(saved);
                 if(cancelled)throw new InterruptedException("Cancelled");
             }
             done=true;tasks.remove(url);persistPending(url,name,true);
