@@ -47,8 +47,10 @@ import android.text.style.ForegroundColorSpan;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.VideoView;
-import android.widget.MediaController;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
 import androidx.core.view.ViewCompat;
@@ -78,7 +80,8 @@ public class MainActivity extends Activity {
     private static final Semaphore DOWNLOAD_SLOTS=new Semaphore(2,true);
     private final ArrayList<File> completed=new ArrayList<>();
     private LinearLayout root, taskList, fileList, musicList, videoList;
-    private VideoView videoPlayer;
+    private PlayerView videoPlayer;
+    private ExoPlayer exoPlayer;
     private FrameLayout videoPlayerFrame;
     private Button videoFullscreenButton;
     private boolean videoFullscreen=false;
@@ -223,7 +226,9 @@ public class MainActivity extends Activity {
         LinearLayout videoSection=new LinearLayout(this);videoSection.setTag("video-section");videoSection.setOrientation(LinearLayout.VERTICAL);videoSection.setVisibility(View.GONE);content.addView(videoSection);
         TextView videoTitle=text(tr("Video"),18,CYAN);videoTitle.setTypeface(null,Typeface.BOLD);videoTitle.setPadding(0,dp(10),0,dp(4));videoSection.addView(videoTitle);
         videoPlayerFrame=new FrameLayout(this);videoPlayerFrame.setBackgroundColor(Color.BLACK);
-        videoPlayer=new VideoView(this);videoPlayer.setBackgroundColor(Color.BLACK);
+        videoPlayer=new PlayerView(this);videoPlayer.setBackgroundColor(Color.BLACK);videoPlayer.setUseController(true);videoPlayer.setControllerAutoShow(true);
+        exoPlayer=new ExoPlayer.Builder(this).build();
+        videoPlayer.setPlayer(exoPlayer);
         videoPlayerFrame.addView(videoPlayer,new FrameLayout.LayoutParams(-1,-1));
         videoFullscreenButton=button("⛶",false);
         videoFullscreenButton.setTextSize(22);
@@ -231,30 +236,24 @@ public class MainActivity extends Activity {
         fullscreenButtonParams.setMargins(0,dp(6),dp(6),0);
         videoPlayerFrame.addView(videoFullscreenButton,fullscreenButtonParams);
         videoFullscreenButton.setOnClickListener(v->toggleVideoFullscreen());
-        MediaController mediaController=new MediaController(this);
-        // Anchor playback controls to the actual VideoView so Android positions them over the video surface.
-        mediaController.setAnchorView(videoPlayer);
-        videoPlayer.setMediaController(mediaController);
-        videoPlayer.setOnPreparedListener(mp->{
-            mp.setOnVideoSizeChangedListener((player,width,height)->{
-                // Keep controls anchored to the VideoView; the outer frame can place them below.
-                videoPlayerFrame.requestLayout();
-                videoPlayer.requestLayout();
-            });
-            videoPlayerFrame.setVisibility(View.VISIBLE);
-            if(resumeVideoPositionAfterFullscreen>=0){
-                int resumeAt=resumeVideoPositionAfterFullscreen;
-                boolean shouldPlay=resumeVideoWasPlaying;
-                resumeVideoPositionAfterFullscreen=-1;
-                videoPlayer.seekTo(resumeAt);
-                if(shouldPlay)videoPlayer.start();
-            }else{
-                videoPlayer.start();
+        videoPlayer.setKeepContentOnPlayerReset(true);
+        exoPlayer.addListener(new Player.Listener(){
+            @Override public void onPlaybackStateChanged(int playbackState){
+                if(playbackState==Player.STATE_READY){
+                    videoPlayerFrame.setVisibility(View.VISIBLE);
+                    if(resumeVideoPositionAfterFullscreen>=0){
+                        long resumeAt=resumeVideoPositionAfterFullscreen;
+                        boolean shouldPlay=resumeVideoWasPlaying;
+                        resumeVideoPositionAfterFullscreen=-1;
+                        exoPlayer.seekTo(resumeAt);
+                        exoPlayer.setPlayWhenReady(shouldPlay);
+                    }
+                }
             }
-        });
-        videoPlayer.setOnErrorListener((mp,what,extra)->{
-            toast("Cannot play this video. The format may not be supported.");
-            return true;
+            @Override public void onPlayerError(androidx.media3.common.PlaybackException error){
+                android.util.Log.e("VideoDownloader","Media3 playback error",error);
+                toast("Cannot play this video. Try downloading it again.");
+            }
         });
         videoSection.addView(videoPlayerFrame,new LinearLayout.LayoutParams(-1,dp(250)));
         videoList=new LinearLayout(this);videoList.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams videoListParams=new LinearLayout.LayoutParams(-1,-2);videoListParams.topMargin=dp(8);videoSection.addView(videoList,videoListParams);
@@ -275,7 +274,7 @@ public class MainActivity extends Activity {
             downloaderSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(95,30,135)));
             musicSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(0,105,150)));
             videoSectionTab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(95,30,135)));
-            if(videoPlayer!=null)videoPlayer.pause();refreshMusicLibrary();pageScroll.smoothScrollTo(0,0);
+            if(exoPlayer!=null)exoPlayer.pause();refreshMusicLibrary();pageScroll.smoothScrollTo(0,0);
         });
         videoSectionTab.setOnClickListener(v->{
             downloaderSection.setVisibility(View.GONE);musicSection.setVisibility(View.GONE);videoSection.setVisibility(View.VISIBLE);
@@ -1001,35 +1000,14 @@ public class MainActivity extends Activity {
             play.setOnClickListener(v->{
                 stopMusicPlayback();
                 try{
-                    videoPlayer.stopPlayback();
                     videoPlayer.setVisibility(View.VISIBLE);
                     videoPlayer.requestFocus();
                     videoPlayerFrame.setVisibility(View.VISIBLE);
-                    // Install listeners before setVideoURI so preparation cannot race the listener.
-                    videoPlayer.setOnPreparedListener(mp->{
-                        mp.setScreenOnWhilePlaying(true);
-                        mp.setOnVideoSizeChangedListener((player,width,height)->{
-                            videoPlayerFrame.requestLayout();
-                            videoPlayer.requestLayout();
-                        });
-                        videoPlayer.setVisibility(View.VISIBLE);
-                        videoPlayerFrame.setVisibility(View.VISIBLE);
-                        if(resumeVideoPositionAfterFullscreen>=0){
-                            int resumeAt=resumeVideoPositionAfterFullscreen;
-                            boolean shouldPlay=resumeVideoWasPlaying;
-                            resumeVideoPositionAfterFullscreen=-1;
-                            videoPlayer.seekTo(resumeAt);
-                            if(shouldPlay)videoPlayer.start();
-                        }else{
-                            videoPlayer.start();
-                        }
-                    });
-                    videoPlayer.setOnErrorListener((mp,what,extra)->{
-                        android.util.Log.e("VideoDownloader","VideoView playback error what="+what+" extra="+extra+" file="+f.getName());
-                        toast("Cannot play this video. Try downloading the H.264 MP4 version.");
-                        return true;
-                    });
-                    videoPlayer.setVideoURI(Uri.fromFile(f));
+                    exoPlayer.stop();
+                    exoPlayer.clearMediaItems();
+                    exoPlayer.setMediaItem(MediaItem.fromUri(Uri.fromFile(f)));
+                    exoPlayer.prepare();
+                    exoPlayer.setPlayWhenReady(true);
                 }catch(Exception e){toast("Cannot open video: "+e.getMessage());}
             });
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(5);videoList.addView(row,rp);
@@ -1043,8 +1021,8 @@ public class MainActivity extends Activity {
         int savedPosition=0;
         boolean wasPlaying=false;
         try{
-            savedPosition=videoPlayer.getCurrentPosition();
-            wasPlaying=videoPlayer.isPlaying();
+            savedPosition=(int)exoPlayer.getCurrentPosition();
+            wasPlaying=exoPlayer.isPlaying();
         }catch(Exception ignored){
             // If the player is between surface states, use the last known pending position.
             savedPosition=Math.max(0,resumeVideoPositionAfterFullscreen);
@@ -1088,8 +1066,8 @@ public class MainActivity extends Activity {
         // Seek only after the view has had a chance to reattach its playback surface.
         videoPlayer.postDelayed(()->{
             try{
-                videoPlayer.seekTo(targetPosition);
-                if(targetWasPlaying)videoPlayer.start();
+                exoPlayer.seekTo(targetPosition);
+                if(targetWasPlaying)exoPlayer.play();
                 resumeVideoPositionAfterFullscreen=-1;
             }catch(Exception ignored){}
         },250);
@@ -1240,7 +1218,8 @@ public class MainActivity extends Activity {
     @Override protected void onDestroy(){
         // Transfers run under DownloadKeepAliveService; keep them alive when the Activity closes.
         stopMusicPlayback();
-        if(videoPlayer!=null)videoPlayer.stopPlayback();
+        if(exoPlayer!=null){exoPlayer.stop();exoPlayer.release();exoPlayer=null;}
+        if(videoPlayer!=null)videoPlayer.setPlayer(null);
         if(browser!=null)browser.destroy();
         super.onDestroy();
     }
