@@ -957,7 +957,7 @@ public class MainActivity extends Activity {
                     // Prefer an audio-only stream, but fall back to the site's best media stream.
                     // Some providers expose audio only inside an MP4/MKV container; FFmpeg
                     // extracts the audio track locally, so do not reject those containers.
-                    request.addOption("-f","bestaudio/best[acodec!=none]/best")
+                    request.addOption("-f","bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio")
                         .addOption("--force-overwrites");
                 }else{
                     // Choose a progressive MP4 with H.264 video and AAC audio whenever
@@ -1007,7 +1007,7 @@ public class MainActivity extends Activity {
                 // selected format. This prevents an MP4 from a previous/parallel task
                 // being reported as the result of an MP3 request.
                 boolean requestedFormat=audioOnly?
-                    (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")||n.endsWith(".mka")||n.endsWith(".wav")||n.endsWith(".flac")||n.endsWith(".mp4")||n.endsWith(".mkv")):
+                    (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")||n.endsWith(".mka")||n.endsWith(".wav")||n.endsWith(".flac")):
                     (n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".3gp"));
                 boolean belongsToTask=n.startsWith(("vd_"+startedAt+"_").toLowerCase(Locale.ROOT));
                 if(f.isFile()&&belongsToTask&&f.lastModified()>=startedAt-2000&&!temporary&&requestedFormat&&!n.equals(name.toLowerCase(Locale.ROOT))){
@@ -1017,6 +1017,26 @@ public class MainActivity extends Activity {
             if(saved==null){
                 if(audioOnly)throw new Exception("Audio extraction finished without an MP3 file. The source may not provide audio or the extractor could not convert it.");
                 throw new Exception("The extractor reported success, but no new output file was found. Try again and check available storage.");
+            }
+            if(audioOnly){
+                // Guard against extractor regressions: never send a video container to the
+                // MP3 converter. That previously caused video downloads to masquerade as audio
+                // and could crash conversion on some devices.
+                MediaExtractor audioProbe=new MediaExtractor();
+                boolean hasAudioTrack=false,hasVideoTrack=false;
+                try{
+                    audioProbe.setDataSource(saved.getAbsolutePath());
+                    for(int i=0;i<audioProbe.getTrackCount();i++){
+                        MediaFormat track=audioProbe.getTrackFormat(i);
+                        String trackMime=track.containsKey(MediaFormat.KEY_MIME)?track.getString(MediaFormat.KEY_MIME):null;
+                        if(trackMime!=null&&trackMime.startsWith("audio/"))hasAudioTrack=true;
+                        if(trackMime!=null&&trackMime.startsWith("video/"))hasVideoTrack=true;
+                    }
+                }finally{audioProbe.release();}
+                if(!hasAudioTrack||hasVideoTrack){
+                    saved.delete();
+                    throw new Exception("The source did not provide a separate audio-only stream. No MP4 was saved as MP3; please retry later.");
+                }
             }
             if(!audioOnly){
                 // Reject audio-only MP4 files: Android can play their sound while showing a black picture.
