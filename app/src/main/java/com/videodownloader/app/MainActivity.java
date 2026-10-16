@@ -791,7 +791,7 @@ public class MainActivity extends Activity {
                     // Prefer an audio-only stream, but fall back to the site's best media stream.
                     // Some providers expose audio only inside an MP4/MKV container; FFmpeg
                     // extracts the audio track locally, so do not reject those containers.
-                    request.addOption("-f","bestaudio")
+                    request.addOption("-f","bestaudio/best[acodec!=none]")
                         .addOption("--force-overwrites");
                 }else{
                     // Choose a progressive MP4 with H.264 video and AAC audio whenever
@@ -1102,49 +1102,61 @@ public class MainActivity extends Activity {
         if(action!=null){action.setEnabled(false);action.setText(tr("Waiting"));}
         new Thread(()->{
             File output=null;
+            String error="";
+            boolean success=false;
             try{
                 String base=source.getName();
                 int dot=base.lastIndexOf('.');
                 if(dot>0)base=base.substring(0,dot);
-                output=new File(downloadDir(),safeName(base+"_audio.mp3"));
-                if(output.exists())output=new File(downloadDir(),safeName(base+"_audio_"+System.currentTimeMillis()+".mp3"));
+                // Keep the .mp3 suffix even when a source title is very long.
+                String safeBase=safeName(base);
+                if(safeBase.length()>80)safeBase=safeBase.substring(0,80);
+                output=new File(downloadDir(),safeBase+"_audio.mp3");
+                if(output.exists())output=new File(downloadDir(),safeBase+"_audio_"+System.currentTimeMillis()+".mp3");
                 final File target=output;
                 final String command="-y -hide_banner -loglevel error -i "+ffmpegQuote(source.getAbsolutePath())
-                    +" -map 0:a:0 -vn -codec:a libmp3lame -b:a "+bitrate+"k -id3v2_version 3 "+ffmpegQuote(target.getAbsolutePath());
+                    +" -map 0:a:0 -vn -codec:a libmp3lame -b:a "+bitrate+"k -id3v2_version 3 -f mp3 "+ffmpegQuote(target.getAbsolutePath());
                 main.post(()->status.setText("Converting audio to MP3…"));
-                // Use the bundled FFmpegKit encoder rather than MediaCodec's device-dependent
-                // PCM output format. This handles M4A/AAC and WebM/Opus audio consistently.
-                com.arthenica.ffmpegkit.FFmpegKit.executeAsync(command,session->{
-                    boolean success=com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.getReturnCode())
-                        &&target.isFile()&&target.length()>0;
-                    String detail=session.getFailStackTrace();
-                    if(detail==null||detail.trim().isEmpty())detail=session.getAllLogsAsString();
-                    final String error=detail==null?"":detail;
-                    main.post(()->{
-                        if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}
-                        if(success){
-                            publishToMediaLibrary(target);
-                            if(deleteSourceAfterSuccess&&source.isFile()&&!source.getAbsolutePath().equals(target.getAbsolutePath()))source.delete();
-                            status.setText(tr("Audio saved")+": "+target.getName());
-                            toast("MP3 saved: "+target.getName());
-                            refreshLibrary();
-                            refreshMusicLibrary();
-                        }else{
-                            if(target.exists())target.delete();
-                            status.setText(tr("Audio extraction failed"));
-                            String shortError=error.trim();
-                            if(shortError.length()>350)shortError=shortError.substring(shortError.length()-350);
-                            toast(tr("Audio extraction failed")+(shortError.isEmpty()?": FFmpeg could not decode this audio":": "+shortError));
-                        }
-                    });
+                // Run conversion synchronously on this worker thread. This avoids the
+                // asynchronous native callback path that could close the app on some devices.
+                com.arthenica.ffmpegkit.FFmpegSession session=com.arthenica.ffmpegkit.FFmpegKit.execute(command);
+                success=session!=null&&com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.getReturnCode())
+                    &&target.isFile()&&target.length()>0;
+                if(!success){
+                    error=session==null?"FFmpeg did not create a session":session.getFailStackTrace();
+                    if(error==null||error.trim().isEmpty())error=session==null?"":session.getAllLogsAsString();
+                    if(error==null||error.trim().isEmpty())error="FFmpeg could not decode the downloaded audio";
+                }
+                if(success&&deleteSourceAfterSuccess&&source.isFile()&&!source.getAbsolutePath().equals(target.getAbsolutePath())){
+                    if(!source.delete())android.util.Log.w("VideoDownloader","Could not delete temporary audio source: "+source.getName());
+                }
+                final boolean finished=success;
+                final File finishedFile=target;
+                final String visibleError=error;
+                main.post(()->{
+                    if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}
+                    if(finished){
+                        publishToMediaLibrary(finishedFile);
+                        status.setText(tr("Audio saved")+": "+finishedFile.getName());
+                        toast("MP3 saved: "+finishedFile.getName());
+                        refreshLibrary();
+                        refreshMusicLibrary();
+                    }else{
+                        if(finishedFile.exists())finishedFile.delete();
+                        status.setText(tr("Audio extraction failed"));
+                        String shortError=visibleError.trim();
+                        if(shortError.length()>350)shortError=shortError.substring(shortError.length()-350);
+                        toast(tr("Audio extraction failed")+": "+shortError);
+                    }
                 });
             }catch(Exception e){
                 if(output!=null&&output.exists())output.delete();
-                String error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
+                String msg=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
+                final String visibleError=msg;
                 main.post(()->{
                     if(action!=null){action.setEnabled(true);action.setText(tr("Extract MP3"));}
                     status.setText(tr("Audio extraction failed"));
-                    toast(tr("Audio extraction failed")+": "+error);
+                    toast(tr("Audio extraction failed")+": "+visibleError);
                 });
             }
         },"mp3-converter").start();
