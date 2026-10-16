@@ -680,7 +680,11 @@ public class MainActivity extends Activity {
                             main.post(()->{status.setText(tr("Download complete")+": "+fallback.getName());refreshLibrary();refreshMusicLibrary();});
                         }
                         return;
-                    }catch(InterruptedException stop){done=true;tasks.remove(url);throw stop;}
+                    }catch(InterruptedException stop){
+                        done=true;tasks.remove(url);persistPending(url,name,true);
+                        if(viewUpdate!=null)viewUpdate.set(0,tr("Cancel"));
+                        return;
+                    }
                     catch(Exception fallbackError){
                         String detail=fallbackError.getMessage()==null?fallbackError.getClass().getSimpleName():fallbackError.getMessage();
                         error=error+" | webpage fallback: "+detail;
