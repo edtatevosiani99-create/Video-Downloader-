@@ -788,7 +788,10 @@ public class MainActivity extends Activity {
                     // the app's MediaCodec + LAME converter after the transfer completes.
                     // Never fall back to "best": that can select a video+audio MP4 when the user asked for MP3.
                     // Select an audio-only format, then convert the downloaded audio container locally.
-                    request.addOption("-f","bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio")
+                    // Prefer an audio-only stream, but fall back to the site's best media stream.
+                    // Some providers expose audio only inside an MP4/MKV container; FFmpeg
+                    // extracts the audio track locally, so do not reject those containers.
+                    request.addOption("-f","bestaudio/best")
                         .addOption("--force-overwrites");
                 }else{
                     // Choose a progressive MP4 with H.264 video and AAC audio whenever
@@ -838,7 +841,7 @@ public class MainActivity extends Activity {
                 // selected format. This prevents an MP4 from a previous/parallel task
                 // being reported as the result of an MP3 request.
                 boolean requestedFormat=audioOnly?
-                    (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")||n.endsWith(".mka")||n.endsWith(".wav")||n.endsWith(".flac")):
+                    (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")||n.endsWith(".mka")||n.endsWith(".wav")||n.endsWith(".flac")||n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".mkv")||n.endsWith(".mov")||n.endsWith(".3gp")||n.endsWith(".avi")):
                     (n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".3gp"));
                 boolean belongsToTask=n.startsWith(("vd_"+startedAt+"_").toLowerCase(Locale.ROOT));
                 if(f.isFile()&&belongsToTask&&f.lastModified()>=startedAt-2000&&!temporary&&requestedFormat&&!n.equals(name.toLowerCase(Locale.ROOT))){
