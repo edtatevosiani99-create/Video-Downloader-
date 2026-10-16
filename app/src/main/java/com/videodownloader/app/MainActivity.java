@@ -663,7 +663,35 @@ public class MainActivity extends Activity {
                     main.post(()->{status.setText(tr("Download complete")+": "+saved.getName());refreshLibrary();refreshMusicLibrary();});
                 }
             }catch(InterruptedException e){if(!preservePartial){part.delete();persistPending(url,name,true);}done=true;tasks.remove(url);if(viewUpdate!=null)viewUpdate.set(0,preservePartial?tr("Waiting"):tr("Cancel"));}
-            catch(Exception e){done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);String error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();if(error.length()>900)error=error.substring(error.length()-900);final String visibleError=error;if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+visibleError);main.post(()->{status.setText(tr("Download failed")+": "+visibleError);Toast.makeText(MainActivity.this,"Download failed: "+visibleError,Toast.LENGTH_LONG).show();});}
+            catch(Exception e){
+                String error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
+                if(extractor&&!cancelled){
+                    try{
+                        if(viewUpdate!=null)viewUpdate.set(2,"Trying webpage media fallback…");
+                        File fallback=downloadPageFallback();
+                        done=true;tasks.remove(url);persistPending(url,name,true);
+                        if(audioOnly){
+                            if(viewUpdate!=null)viewUpdate.set(95,"Converting fallback audio to MP3…");
+                            main.post(()->{status.setText("Converting audio to MP3…");convertAudioToMp3(fallback,null,192,true);});
+                        }else{
+                            publishToMediaLibrary(fallback);
+                            if(viewUpdate!=null)viewUpdate.set(100,tr("Download complete"));
+                            postNotification(2000+(Math.abs(url.hashCode())%500),fallback.getName(),100,true);
+                            main.post(()->{status.setText(tr("Download complete")+": "+fallback.getName());refreshLibrary();refreshMusicLibrary();});
+                        }
+                        return;
+                    }catch(InterruptedException stop){done=true;tasks.remove(url);throw stop;}
+                    catch(Exception fallbackError){
+                        String detail=fallbackError.getMessage()==null?fallbackError.getClass().getSimpleName():fallbackError.getMessage();
+                        error=error+" | webpage fallback: "+detail;
+                    }
+                }
+                done=true;tasks.remove(url);if(!part.exists()||part.length()==0)persistPending(url,name,true);
+                if(error.length()>900)error=error.substring(error.length()-900);
+                final String visibleError=error;
+                if(viewUpdate!=null)viewUpdate.set(0,tr("Download failed")+": "+visibleError);
+                main.post(()->{status.setText(tr("Download failed")+": "+visibleError);Toast.makeText(MainActivity.this,"Download failed: "+visibleError,Toast.LENGTH_LONG).show();});
+            }
             finally{
                 if(conn!=null)conn.disconnect();
                 if(slotAcquired)DOWNLOAD_SLOTS.release();
@@ -672,6 +700,140 @@ public class MainActivity extends Activity {
                     try{stopService(new Intent(MainActivity.this,DownloadKeepAliveService.class));}catch(Exception ignored){}
                 }
             }
+        }
+
+        // Last-resort fallback for ordinary pages that expose media URLs in HTML/JSON.
+        // It deliberately downloads only public, directly reachable media; it does not bypass DRM or logins.
+        private File downloadPageFallback()throws Exception{
+            ArrayList<String> candidates=new ArrayList<>();
+            if(isDirectMediaUrl(url)||isHlsUrl(url))candidates.add(url);
+            if(!isDirectMediaUrl(url)&&!isHlsUrl(url)){
+                HttpURLConnection page=(HttpURLConnection)new URL(url).openConnection();
+                page.setConnectTimeout(15000);page.setReadTimeout(20000);page.setInstanceFollowRedirects(true);
+                page.setRequestProperty("User-Agent",userAgent);
+                page.setRequestProperty("Referer",url);
+                String cookie=CookieManager.getInstance().getCookie(url);if(cookie!=null&&!cookie.isEmpty())page.setRequestProperty("Cookie",cookie);
+                int code=page.getResponseCode();
+                if(code<200||code>=300){page.disconnect();throw new java.io.IOException("Page HTTP "+code);}
+                String type=page.getContentType();
+                if(type!=null&&!type.toLowerCase(Locale.ROOT).contains("text/html")&&!type.toLowerCase(Locale.ROOT).contains("json")){
+                    page.disconnect();throw new Exception("Page did not return HTML media links");
+                }
+                StringBuilder html=new StringBuilder();
+                try(InputStream in=new BufferedInputStream(page.getInputStream())){
+                    byte[] b=new byte[8192];int n;int total=0;
+                    while((n=in.read(b))!=-1&&total<4*1024*1024){html.append(new String(b,0,n,java.nio.charset.StandardCharsets.UTF_8));total+=n;}
+                }finally{page.disconnect();}
+                String source=html.toString().replace("&amp;","&").replace("\\u0026","&").replace("\\/","/");
+                java.util.regex.Pattern tagPattern=java.util.regex.Pattern.compile("(?is)<(?:video|source|audio)[^>]*?\\bsrc\\s*=\\s*(['\"])(.*?)\\1");
+                java.util.regex.Matcher tagMatcher=tagPattern.matcher(source);
+                while(tagMatcher.find())addMediaCandidate(candidates,tagMatcher.group(2));
+                java.util.regex.Pattern contentPattern=java.util.regex.Pattern.compile("(?is)<meta[^>]+(?:content|property)\\s*=\\s*(['\"])(.*?)\\1[^>]*>");
+                java.util.regex.Matcher contentMatcher=contentPattern.matcher(source);
+                while(contentMatcher.find()){
+                    java.util.regex.Matcher nested=java.util.regex.Pattern.compile("(?i)(https?:[^\\s\"'<>]+?\\.(?:mp4|webm|m4v|mov|mp3|m4a|aac|ogg|opus|m3u8)(?:\\?[^\\s\"'<>]*)?)").matcher(contentMatcher.group(2));
+                    while(nested.find())addMediaCandidate(candidates,nested.group(1));
+                }
+                java.util.regex.Pattern urlPattern=java.util.regex.Pattern.compile("(?i)(https?:[^\\s\"'<>]+?\\.(?:mp4|webm|m4v|mov|mp3|m4a|aac|ogg|opus|m3u8)(?:\\?[^\\s\"'<>]*)?)");
+                java.util.regex.Matcher urlMatcher=urlPattern.matcher(source);
+                while(urlMatcher.find())addMediaCandidate(candidates,urlMatcher.group(1));
+            }
+            if(candidates.isEmpty())throw new Exception("No direct media links were found on this page");
+            String last="No candidate media URL could be downloaded";
+            for(String candidate:candidates){
+                if(cancelled)throw new InterruptedException("Cancelled");
+                try{return downloadFallbackCandidate(candidate);}
+                catch(InterruptedException stop){throw stop;}
+                catch(Exception problem){last=problem.getMessage()==null?problem.getClass().getSimpleName():problem.getMessage();}
+            }
+            throw new Exception(last);
+        }
+        private void addMediaCandidate(ArrayList<String> list,String raw){
+            if(raw==null)return;
+            String value=raw.trim().replace("&amp;","&").replace("\\/","/");
+            if(value.isEmpty()||value.startsWith("data:")||value.startsWith("blob:"))return;
+            try{
+                URL resolved=new URL(new URL(url),value);
+                String protocol=resolved.getProtocol();
+                if(!protocol.equalsIgnoreCase("http")&&!protocol.equalsIgnoreCase("https"))return;
+                String path=resolved.getPath().toLowerCase(Locale.ROOT);
+                if(!path.matches("(?s).*\\.(mp4|webm|m4v|mov|mp3|m4a|aac|ogg|opus|m3u8)$"))return;
+                String candidate=resolved.toString();
+                if(!list.contains(candidate))list.add(candidate);
+            }catch(Exception ignored){}
+        }
+        private File downloadFallbackCandidate(String candidate)throws Exception{
+            String mediaUrl=candidate;
+            boolean hls=isHlsUrl(mediaUrl);
+            if(hls){
+                String manifest=requestText(mediaUrl,userAgent);
+                if(!manifest.trim().startsWith("#EXTM3U"))throw new Exception("Invalid HLS manifest");
+                if(manifest.matches("(?s).*#EXT-X-KEY:(?!.*METHOD=NONE).*")||manifest.contains("#EXT-X-MAP:"))
+                    throw new Exception("This stream uses encryption or fragmented MP4");
+                if(manifest.contains("#EXT-X-STREAM-INF:")){
+                    String[] lines=manifest.split("\\r?\\n");long best=-1;String selected=null;
+                    for(int i=0;i<lines.length-1;i++){
+                        String line=lines[i].trim();
+                        if(line.startsWith("#EXT-X-STREAM-INF:")){
+                            java.util.regex.Matcher bw=java.util.regex.Pattern.compile("(?i)BANDWIDTH=(\\d+)").matcher(line);
+                            long value=bw.find()?Long.parseLong(bw.group(1)):0;
+                            String next=lines[i+1].trim();
+                            if(!next.isEmpty()&&!next.startsWith("#")&&value>best){best=value;selected=new URL(new URL(mediaUrl),next).toString();}
+                        }
+                    }
+                    if(selected==null)throw new Exception("No downloadable HLS quality was found");
+                    mediaUrl=selected;manifest=requestText(mediaUrl,userAgent);
+                    if(!manifest.trim().startsWith("#EXTM3U")||manifest.contains("#EXT-X-STREAM-INF:"))throw new Exception("Nested HLS playlists are not supported");
+                    if(manifest.matches("(?s).*#EXT-X-KEY:(?!.*METHOD=NONE).*")||manifest.contains("#EXT-X-MAP:"))throw new Exception("This HLS stream is encrypted or fragmented MP4");
+                }
+                ArrayList<String> segments=new ArrayList<>();
+                for(String line:manifest.split("\\r?\\n")){line=line.trim();if(!line.isEmpty()&&!line.startsWith("#"))segments.add(new URL(new URL(mediaUrl),line).toString());}
+                if(segments.isEmpty())throw new Exception("HLS playlist has no media segments");
+                String base=safeName("web_fallback_"+System.currentTimeMillis())+".ts";
+                File dest=new File(downloadDir(),base),part=new File(downloadDir(),base+".part");
+                long totalBytes=0;byte[] buffer=new byte[32768];long started=System.currentTimeMillis();
+                try(FileOutputStream out=new FileOutputStream(part,false)){
+                    for(int i=0;i<segments.size();i++){
+                        if(cancelled)throw new InterruptedException("Cancelled");
+                        HttpURLConnection seg=(HttpURLConnection)new URL(segments.get(i)).openConnection();
+                        seg.setConnectTimeout(15000);seg.setReadTimeout(20000);seg.setInstanceFollowRedirects(true);
+                        seg.setRequestProperty("User-Agent",userAgent);seg.setRequestProperty("Referer",url);
+                        String c=CookieManager.getInstance().getCookie(segments.get(i));if(c!=null&&!c.isEmpty())seg.setRequestProperty("Cookie",c);
+                        int responseCode=seg.getResponseCode();if(responseCode<200||responseCode>=300){seg.disconnect();throw new java.io.IOException("HLS segment HTTP "+responseCode);}
+                        try(InputStream in=new BufferedInputStream(seg.getInputStream())){
+                            int n;while((n=in.read(buffer))!=-1){synchronized(this){while(paused&&!cancelled)wait();}if(cancelled)throw new InterruptedException("Cancelled");out.write(buffer,0,n);totalBytes+=n;}
+                        }finally{seg.disconnect();}
+                        if(viewUpdate!=null)viewUpdate.set(Math.min(95,(i+1)*95/segments.size()),"Web fallback · "+(i+1)+"/"+segments.size());
+                    }
+                    out.flush();
+                }catch(Exception e){part.delete();throw e;}
+                if(totalBytes==0||!part.renameTo(dest)){part.delete();throw new Exception("Could not save HLS fallback");}
+                return dest;
+            }
+            HttpURLConnection conn=(HttpURLConnection)new URL(mediaUrl).openConnection();
+            conn.setConnectTimeout(15000);conn.setReadTimeout(25000);conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent",userAgent);conn.setRequestProperty("Referer",url);
+            String cookie=CookieManager.getInstance().getCookie(mediaUrl);if(cookie!=null&&!cookie.isEmpty())conn.setRequestProperty("Cookie",cookie);
+            int code=conn.getResponseCode();if(code<200||code>=300){conn.disconnect();throw new java.io.IOException("Media HTTP "+code);}
+            String contentType=conn.getContentType();
+            if(contentType!=null&&contentType.toLowerCase(Locale.ROOT).contains("text/html")){conn.disconnect();throw new Exception("Candidate returned a web page, not media");}
+            String ext;
+            try{ext=new URL(mediaUrl).getPath().toLowerCase(Locale.ROOT);int dot=ext.lastIndexOf('.');ext=dot>=0?ext.substring(dot):"";}catch(Exception e){ext="";}
+            if(!ext.matches("\\.(mp4|webm|m4v|mov|mp3|m4a|aac|ogg|opus)$")){
+                if(contentType!=null&&contentType.toLowerCase(Locale.ROOT).startsWith("audio/"))ext=".m4a";
+                else ext=".mp4";
+            }
+            String base=safeName("web_fallback_"+System.currentTimeMillis())+ext;
+            File dest=new File(downloadDir(),base),part=new File(downloadDir(),base+".part");
+            long total=Build.VERSION.SDK_INT>=24?conn.getContentLengthLong():conn.getContentLength();
+            long count=0,lastUi=0;byte[] buffer=new byte[32768];
+            try(InputStream in=new BufferedInputStream(conn.getInputStream());FileOutputStream out=new FileOutputStream(part,false)){
+                int n;while((n=in.read(buffer))!=-1){synchronized(this){while(paused&&!cancelled)wait();}if(cancelled)throw new InterruptedException("Cancelled");out.write(buffer,0,n);count+=n;
+                    long now=System.currentTimeMillis();if(viewUpdate!=null&&now-lastUi>500){int pct=total>0?(int)Math.min(95,count*95/total):0;viewUpdate.set(pct,"Web fallback · "+android.text.format.Formatter.formatFileSize(MainActivity.this,count));lastUi=now;}
+                }out.flush();
+            }catch(Exception e){part.delete();throw e;}finally{conn.disconnect();}
+            if(count==0||(total>0&&count<total)||!part.renameTo(dest)){part.delete();throw new Exception("Incomplete media response");}
+            return dest;
         }
 
         private void runYtDlp()throws Exception{
@@ -791,7 +953,7 @@ public class MainActivity extends Activity {
                     // Prefer an audio-only stream, but fall back to the site's best media stream.
                     // Some providers expose audio only inside an MP4/MKV container; FFmpeg
                     // extracts the audio track locally, so do not reject those containers.
-                    request.addOption("-f","bestaudio/best[acodec!=none]")
+                    request.addOption("-f","bestaudio/best[acodec!=none]/best")
                         .addOption("--force-overwrites");
                 }else{
                     // Choose a progressive MP4 with H.264 video and AAC audio whenever
@@ -800,7 +962,7 @@ public class MainActivity extends Activity {
                     // Prefer a progressive H.264/AAC MP4 that Android VideoView can decode reliably.
                     // Only fall back to progressive MP4 with both streams; do not select split tracks
                     // because this app does not merge them with FFmpeg.
-                    request.addOption("-f","best[ext=mp4][height<=480][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec^=avc1]");
+                    request.addOption("-f","best[height<=720]/best[height<=1080]/best");
                 }
 
                 response=YtDlp.execute(request,callback);
