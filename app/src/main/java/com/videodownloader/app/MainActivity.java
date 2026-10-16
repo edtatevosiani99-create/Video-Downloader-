@@ -841,7 +841,7 @@ public class MainActivity extends Activity {
                 // selected format. This prevents an MP4 from a previous/parallel task
                 // being reported as the result of an MP3 request.
                 boolean requestedFormat=audioOnly?
-                    (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")||n.endsWith(".mka")||n.endsWith(".wav")||n.endsWith(".flac")):
+                    (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")||n.endsWith(".mka")||n.endsWith(".wav")||n.endsWith(".flac")||n.endsWith(".mp4")||n.endsWith(".mkv")):
                     (n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".3gp"));
                 boolean belongsToTask=n.startsWith(("vd_"+startedAt+"_").toLowerCase(Locale.ROOT));
                 if(f.isFile()&&belongsToTask&&f.lastModified()>=startedAt-2000&&!temporary&&requestedFormat&&!n.equals(name.toLowerCase(Locale.ROOT))){
