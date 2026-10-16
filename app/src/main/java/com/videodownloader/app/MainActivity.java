@@ -798,7 +798,7 @@ public class MainActivity extends Activity {
                     // Prefer a progressive H.264/AAC MP4 that Android VideoView can decode reliably.
                     // Only fall back to progressive MP4 with both streams; do not select split tracks
                     // because this app does not merge them with FFmpeg.
-                    request.addOption("-f","best[ext=mp4][height<=480][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]");
+                    request.addOption("-f","best[ext=mp4][height<=480][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4][height<=720][vcodec^=avc1]");
                 }
 
                 response=YtDlp.execute(request,callback);
