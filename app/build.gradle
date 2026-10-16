@@ -16,6 +16,9 @@ android {
 }
 
 dependencies {
+    // Media3 ExoPlayer provides more reliable hardware video decoding than Android VideoView.
+    implementation 'androidx.media3:media3-exoplayer:1.5.1'
+    implementation 'androidx.media3:media3-ui:1.5.1'
     implementation 'androidx.core:core:1.15.0'
     implementation 'dev.ffmpegkit-maintained:yt-dlp-android:2.0.2'
     // FFmpeg provides reliable MP3 encoding and normalizes downloaded video for Android playback.
