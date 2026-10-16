@@ -15,6 +15,11 @@ android {
     }
 }
 
+configurations.configureEach {
+    // Avoid duplicate legacy Android Support media classes conflicting with AndroidX Media3.
+    exclude group: 'com.android.support', module: 'support-media-compat'
+}
+
 dependencies {
     // Media3 ExoPlayer provides more reliable hardware video decoding than Android VideoView.
     implementation 'androidx.media3:media3-exoplayer:1.5.1'
