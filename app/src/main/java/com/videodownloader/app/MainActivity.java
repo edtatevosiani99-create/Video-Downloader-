@@ -1271,6 +1271,96 @@ public class MainActivity extends Activity {
             .setItems(new String[]{"128 kbps · smaller file","192 kbps · recommended","320 kbps · highest bitrate"},(dialog,which)->convertAudioToMp3(source,action,new int[]{128,192,320}[which]))
             .setNegativeButton("Cancel",null).show();
     }
+    private boolean encodeAudioToMp3(File source,File target,int bitrate) throws Exception {
+        MediaExtractor extractor=new MediaExtractor();
+        MediaCodec decoder=null;
+        AndroidLame lame=null;
+        boolean completed=false;
+        try(FileOutputStream out=new FileOutputStream(target)){
+            extractor.setDataSource(source.getAbsolutePath());
+            int audioTrack=-1;
+            MediaFormat inputFormat=null;
+            for(int i=0;i<extractor.getTrackCount();i++){
+                MediaFormat f=extractor.getTrackFormat(i);
+                String mime=f.containsKey(MediaFormat.KEY_MIME)?f.getString(MediaFormat.KEY_MIME):null;
+                if(mime!=null&&mime.startsWith("audio/")){audioTrack=i;inputFormat=f;break;}
+            }
+            if(audioTrack<0||inputFormat==null)throw new Exception("No audio track found in downloaded file");
+            extractor.selectTrack(audioTrack);
+            String mime=inputFormat.getString(MediaFormat.KEY_MIME);
+            decoder=MediaCodec.createDecoderByType(mime);
+            decoder.configure(inputFormat,null,null,0);
+            decoder.start();
+            MediaCodec.BufferInfo info=new MediaCodec.BufferInfo();
+            boolean inputDone=false,outputDone=false;
+            int sampleRate=inputFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)?inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE):44100;
+            int channels=inputFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)?inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT):2;
+            byte[] mp3Buffer=new byte[16384];
+            long deadline=System.currentTimeMillis()+15L*60L*1000L;
+            while(!outputDone){
+                if(System.currentTimeMillis()>deadline)throw new Exception("MP3 conversion timed out");
+                if(!inputDone){
+                    int inputIndex=decoder.dequeueInputBuffer(10000);
+                    if(inputIndex>=0){
+                        ByteBuffer input=decoder.getInputBuffer(inputIndex);
+                        if(input==null)throw new Exception("Audio decoder input buffer unavailable");
+                        int size=extractor.readSampleData(input,0);
+                        if(size<0){
+                            decoder.queueInputBuffer(inputIndex,0,0,0,MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            inputDone=true;
+                        }else{
+                            decoder.queueInputBuffer(inputIndex,0,size,extractor.getSampleTime(),0);
+                            extractor.advance();
+                        }
+                    }
+                }
+                int outputIndex=decoder.dequeueOutputBuffer(info,10000);
+                if(outputIndex==MediaCodec.INFO_OUTPUT_FORMAT_CHANGED){
+                    MediaFormat decoded=decoder.getOutputFormat();
+                    sampleRate=decoded.containsKey(MediaFormat.KEY_SAMPLE_RATE)?decoded.getInteger(MediaFormat.KEY_SAMPLE_RATE):sampleRate;
+                    channels=decoded.containsKey(MediaFormat.KEY_CHANNEL_COUNT)?decoded.getInteger(MediaFormat.KEY_CHANNEL_COUNT):channels;
+                    if(channels<1||channels>2)throw new Exception("Unsupported audio channel count: "+channels);
+                    lame=new LameBuilder().setInSampleRate(sampleRate).setOutChannels(channels)
+                        .setOutBitrate(Math.max(64,Math.min(320,bitrate))).setOutSampleRate(sampleRate).setQuality(5).build();
+                }else if(outputIndex>=0){
+                    ByteBuffer decoded=decoder.getOutputBuffer(outputIndex);
+                    if(decoded!=null&&info.size>0){
+                        if(lame==null){
+                            if(channels<1||channels>2)throw new Exception("Unsupported audio channel count: "+channels);
+                            lame=new LameBuilder().setInSampleRate(sampleRate).setOutChannels(channels)
+                                .setOutBitrate(Math.max(64,Math.min(320,bitrate))).setOutSampleRate(sampleRate).setQuality(5).build();
+                        }
+                        decoded.position(info.offset);
+                        decoded.limit(info.offset+info.size);
+                        ByteBuffer pcm=decoded.slice().order(ByteOrder.LITTLE_ENDIAN);
+                        int sampleCount=pcm.remaining()/2;
+                        short[] samples=new short[sampleCount];
+                        pcm.asShortBuffer().get(samples);
+                        int samplesPerChannel=sampleCount/channels;
+                        int encoded=lame.encodeBufferInterLeaved(samples,samplesPerChannel,mp3Buffer);
+                        if(encoded>0)out.write(mp3Buffer,0,encoded);
+                    }
+                    if((info.flags&MediaCodec.BUFFER_FLAG_END_OF_STREAM)!=0)outputDone=true;
+                    decoder.releaseOutputBuffer(outputIndex,false);
+                }
+            }
+            if(lame!=null){
+                int flushed=lame.flush(mp3Buffer);
+                if(flushed>0)out.write(mp3Buffer,0,flushed);
+                lame.close();lame=null;
+            }
+            out.flush();
+            completed=target.isFile()&&target.length()>0;
+        }finally{
+            if(lame!=null)try{lame.close();}catch(Exception ignored){}
+            if(decoder!=null){try{decoder.stop();}catch(Exception ignored){}try{decoder.release();}catch(Exception ignored){}}
+            try{extractor.release();}catch(Exception ignored){}
+            if(!completed&&target.exists())target.delete();
+        }
+        if(!completed)throw new Exception("No MP3 data was produced by the audio encoder");
+        return true;
+    }
+
     private void convertAudioToMp3(File source,Button action,int bitrate){
         convertAudioToMp3(source,action,bitrate,false);
     }
@@ -1300,19 +1390,11 @@ public class MainActivity extends Activity {
                 output=new File(downloadDir(),safeBase+"_audio.mp3");
                 if(output.exists())output=new File(downloadDir(),safeBase+"_audio_"+System.currentTimeMillis()+".mp3");
                 final File target=output;
-                final String command="-y -hide_banner -loglevel error -i "+ffmpegQuote(source.getAbsolutePath())
-                    +" -map 0:a:0 -vn -codec:a libmp3lame -b:a "+bitrate+"k -id3v2_version 3 -f mp3 "+ffmpegQuote(target.getAbsolutePath());
                 main.post(()->status.setText("Converting audio to MP3…"));
-                // Run conversion synchronously on this worker thread. This avoids the
-                // asynchronous native callback path that could close the app on some devices.
-                com.arthenica.ffmpegkit.FFmpegSession session=com.arthenica.ffmpegkit.FFmpegKit.execute(command);
-                success=session!=null&&com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.getReturnCode())
-                    &&target.isFile()&&target.length()>0;
-                if(!success){
-                    error=session==null?"FFmpeg did not create a session":session.getFailStackTrace();
-                    if(error==null||error.trim().isEmpty())error=session==null?"":session.getAllLogsAsString();
-                    if(error==null||error.trim().isEmpty())error="FFmpeg could not decode the downloaded audio";
-                }
+                // Decode with Android's media codec and encode with AndroidLame. Avoids
+                // starting a second FFmpeg native session after yt-dlp has completed.
+                success=encodeAudioToMp3(source,target,bitrate);
+                if(!success)error="MP3 encoder did not produce a valid output file";
                 if(success&&deleteSourceAfterSuccess&&source.isFile()&&!source.getAbsolutePath().equals(target.getAbsolutePath())){
                     if(!source.delete())android.util.Log.w("VideoDownloader","Could not delete temporary audio source: "+source.getName());
                 }
