@@ -859,7 +859,7 @@ public class MainActivity extends Activity {
                 normalizedHost.equals("youtube.com")||normalizedHost.endsWith(".youtube.com")||
                 normalizedHost.equals("youtube-nocookie.com")||normalizedHost.endsWith(".youtube-nocookie.com");
             boolean tiktok=normalizedHost.equals("tiktok.com")||normalizedHost.endsWith(".tiktok.com");
-            String[] clients=youtube?new String[]{"android","web_safari","tv",""}:new String[]{""};
+            String[] clients=youtube?(audioOnly?new String[]{"web_embedded","default","android_vr",""}:new String[]{"android","web_safari","tv",""}):new String[]{""};
 
             // Export cookies from the embedded browser for the current URL and, for
             // Facebook share links, the destination domains they commonly redirect to.
@@ -972,7 +972,7 @@ public class MainActivity extends Activity {
                     // Prefer an audio-only stream, but fall back to the site's best media stream.
                     // Some providers expose audio only inside an MP4/MKV container; FFmpeg
                     // extracts the audio track locally, so do not reject those containers.
-                    request.addOption("-f","bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[acodec!=none]")
+                    request.addOption("-f","bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio")
                         .addOption("--force-overwrites");
                 }else{
                     // Choose a progressive MP4 with H.264 video and AAC audio whenever
