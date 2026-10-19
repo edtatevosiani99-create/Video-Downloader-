@@ -858,7 +858,7 @@ public class MainActivity extends Activity {
             boolean youtube=normalizedHost.equals("youtu.be")||normalizedHost.endsWith(".youtu.be")||
                 normalizedHost.equals("youtube.com")||normalizedHost.endsWith(".youtube.com")||
                 normalizedHost.equals("youtube-nocookie.com")||normalizedHost.endsWith(".youtube-nocookie.com");
-            String[] clients=youtube?new String[]{"android","web_safari",""}:new String[]{""};
+            String[] clients=youtube?new String[]{"tv","web_safari","android",""}:new String[]{""};
 
             // Export cookies from the embedded browser for the current URL and, for
             // Facebook share links, the destination domains they commonly redirect to.
@@ -957,7 +957,7 @@ public class MainActivity extends Activity {
                     // Prefer an audio-only stream, but fall back to the site's best media stream.
                     // Some providers expose audio only inside an MP4/MKV container; FFmpeg
                     // extracts the audio track locally, so do not reject those containers.
-                    request.addOption("-f","bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio")
+                    request.addOption("-f","bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[acodec!=none]")
                         .addOption("--force-overwrites");
                 }else{
                     // Choose a progressive MP4 with H.264 video and AAC audio whenever
@@ -1033,9 +1033,13 @@ public class MainActivity extends Activity {
                         if(trackMime!=null&&trackMime.startsWith("video/"))hasVideoTrack=true;
                     }
                 }finally{audioProbe.release();}
-                if(!hasAudioTrack||hasVideoTrack){
+                // Some YouTube player clients expose audio only inside a combined
+                // audio/video container. MediaExtractor + MediaCodec reads only the
+                // selected audio track during MP3 encoding, so accept a combined
+                // container when it genuinely contains an audio track.
+                if(!hasAudioTrack){
                     saved.delete();
-                    throw new Exception("The source did not provide a separate audio-only stream. No MP4 was saved as MP3; please retry later.");
+                    throw new Exception("The source did not provide a readable audio track. No MP3 was saved; please retry later.");
                 }
             }
             if(!audioOnly){
