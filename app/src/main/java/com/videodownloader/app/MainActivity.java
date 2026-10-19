@@ -859,7 +859,7 @@ public class MainActivity extends Activity {
                 normalizedHost.equals("youtube.com")||normalizedHost.endsWith(".youtube.com")||
                 normalizedHost.equals("youtube-nocookie.com")||normalizedHost.endsWith(".youtube-nocookie.com");
             boolean tiktok=normalizedHost.equals("tiktok.com")||normalizedHost.endsWith(".tiktok.com");
-            String[] clients=youtube?new String[]{"tv","web_safari","android",""}:new String[]{""};
+            String[] clients=youtube?new String[]{"android","web_safari","tv",""}:new String[]{""};
 
             // Export cookies from the embedded browser for the current URL and, for
             // Facebook share links, the destination domains they commonly redirect to.
@@ -981,7 +981,7 @@ public class MainActivity extends Activity {
                     // Prefer a progressive H.264/AAC MP4 that Android VideoView can decode reliably.
                     // Only fall back to progressive MP4 with both streams; do not select split tracks
                     // because this app does not merge them with FFmpeg.
-                    request.addOption("-f","best[height<=720]/best[height<=1080]/best");
+                    request.addOption("-f","best[ext=mp4][height<=720]/best[height<=720]/best[ext=mp4]/best");
                 }
 
                 response=YtDlp.execute(request,callback);
