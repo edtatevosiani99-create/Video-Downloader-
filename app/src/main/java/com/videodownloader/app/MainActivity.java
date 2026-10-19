@@ -858,6 +858,7 @@ public class MainActivity extends Activity {
             boolean youtube=normalizedHost.equals("youtu.be")||normalizedHost.endsWith(".youtu.be")||
                 normalizedHost.equals("youtube.com")||normalizedHost.endsWith(".youtube.com")||
                 normalizedHost.equals("youtube-nocookie.com")||normalizedHost.endsWith(".youtube-nocookie.com");
+            boolean tiktok=normalizedHost.equals("tiktok.com")||normalizedHost.endsWith(".tiktok.com");
             String[] clients=youtube?new String[]{"tv","web_safari","android",""}:new String[]{""};
 
             // Export cookies from the embedded browser for the current URL and, for
@@ -870,6 +871,11 @@ public class MainActivity extends Activity {
                 cookieSources.add(url);
                 boolean facebook=normalizedHost.equals("facebook.com")||normalizedHost.endsWith(".facebook.com")||
                     normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch");
+                if(tiktok){
+                    cookieSources.add("https://www.tiktok.com/");
+                    cookieSources.add("https://tiktok.com/");
+                    cookieSources.add("https://m.tiktok.com/");
+                }
                 if(facebook){
                     cookieSources.add("https://www.facebook.com/");
                     cookieSources.add("https://facebook.com/");
@@ -892,6 +898,8 @@ public class MainActivity extends Activity {
                         cookieDomain=".facebook.com";subdomains=true;
                     }else if(sourceHost.equals("fb.watch")||sourceHost.endsWith(".fb.watch")){
                         cookieDomain=".fb.watch";subdomains=true;
+                    }else if(sourceHost.equals("tiktok.com")||sourceHost.endsWith(".tiktok.com")){
+                        cookieDomain=".tiktok.com";subdomains=true;
                     }
                     boolean secure=source.toLowerCase(Locale.ROOT).startsWith("https://");
                     for(String item:header.split(";\\s*")){
@@ -947,6 +955,13 @@ public class MainActivity extends Activity {
                     request.addOption("--referer","https://www.facebook.com/");
                     request.addOption("--user-agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
                 }
+                if(tiktok){
+                    // TikTok may reject the app's generic downloader user-agent. Use a
+                    // normal browser identity and the site referer, and pass browser cookies
+                    // when the user has opened the TikTok page in the embedded browser.
+                    request.addOption("--referer","https://www.tiktok.com/");
+                    request.addOption("--user-agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                }
                 if(haveCookies)request.addOption("--cookies",cookieFile.getAbsolutePath());
                 if(audioOnly){
                     // This Android build cannot rely on yt-dlp's FFmpeg postprocessor.
@@ -989,7 +1004,7 @@ public class MainActivity extends Activity {
             if(response==null)throw new Exception(lastDetail.isEmpty()?"Downloader returned no result. Check your internet connection and try again.":lastDetail);
             if(!response.isSuccess()){
                 if(lastDetail.toLowerCase(Locale.ROOT).contains("403")||lastDetail.toLowerCase(Locale.ROOT).contains("forbidden")){
-                    String sourceName=(normalizedHost.contains("facebook")||normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch"))?"Facebook":(youtube?"YouTube":"The source");
+                    String sourceName=(normalizedHost.contains("facebook")||normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch"))?"Facebook":(tiktok?"TikTok":(youtube?"YouTube":"The source"));
                     if(sourceName.equals("Facebook")){
                         throw new Exception("Facebook returned HTTP 403 (access denied). Open the exact video in the in-app browser and sign in if required, then retry. Check that the post is visible to your account. Private, restricted, or expired share links may not be downloadable.");
                     }
