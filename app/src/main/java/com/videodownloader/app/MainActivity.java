@@ -954,6 +954,7 @@ public class MainActivity extends Activity {
                 if(facebookSource){
                     request.addOption("--referer","https://www.facebook.com/");
                     request.addOption("--user-agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                    request.addOption("--impersonate","chrome");
                 }
                 if(tiktok){
                     // TikTok may reject the app's generic downloader user-agent. Use a
