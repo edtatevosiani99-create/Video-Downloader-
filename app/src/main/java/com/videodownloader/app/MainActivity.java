@@ -328,6 +328,26 @@ public class MainActivity extends Activity {
                    host.equals("dai.ly")||host.endsWith(".dai.ly");
         }catch(Exception e){return false;}
     }
+    private File convertVideoToMp4(File source)throws Exception{
+        if(source==null||!source.isFile())throw new Exception("Downloaded video file is missing");
+        String base=source.getName();int dot=base.lastIndexOf('.');if(dot>0)base=base.substring(0,dot);
+        File target=new File(source.getParentFile(),safeName(base)+"_converted.mp4");
+        if(target.exists())target=new File(source.getParentFile(),safeName(base)+"_converted_"+System.currentTimeMillis()+".mp4");
+        String[] args={"-y","-threads","1","-i",source.getAbsolutePath(),"-map","0:v:0","-map","0:a?","-vf","scale=min(854\\,iw):-2","-c:v","libx264","-preset","ultrafast","-profile:v","baseline","-level","3.0","-threads","1","-pix_fmt","yuv420p","-c:a","aac","-b:a","96k","-movflags","+faststart",target.getAbsolutePath()};
+        com.arthenica.ffmpegkit.FFmpegSession session=com.arthenica.ffmpegkit.FFmpegKit.executeWithArguments(args);
+        if(session==null||!com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.getReturnCode())||!target.isFile()||target.length()==0){
+            String details=session==null?"no FFmpeg session":session.getOutput();
+            if(details!=null&&details.length()>500)details=details.substring(details.length()-500);
+            target.delete();
+            throw new Exception("Could not convert video to MP4"+(details==null||details.trim().isEmpty()?"":": "+details));
+        }
+        android.media.MediaExtractor probe=new android.media.MediaExtractor();boolean hasVideo=false;
+        try{probe.setDataSource(target.getAbsolutePath());for(int i=0;i<probe.getTrackCount();i++){MediaFormat track=probe.getTrackFormat(i);String mt=track.containsKey(MediaFormat.KEY_MIME)?track.getString(MediaFormat.KEY_MIME):null;if(mt!=null&&mt.startsWith("video/")){hasVideo=true;break;}}}
+        finally{probe.release();}
+        if(!hasVideo){target.delete();throw new Exception("Converted MP4 contains no video track");}
+        return target;
+    }
+
     private void normalizeVideoForPlayback(File source)throws Exception{
         if(source==null||!source.isFile())throw new Exception("Downloaded video file is missing");
         File normalized=new File(source.getParentFile(),source.getName()+".normalized.mp4");
@@ -859,7 +879,8 @@ public class MainActivity extends Activity {
                 normalizedHost.equals("youtube.com")||normalizedHost.endsWith(".youtube.com")||
                 normalizedHost.equals("youtube-nocookie.com")||normalizedHost.endsWith(".youtube-nocookie.com");
             boolean tiktok=normalizedHost.equals("tiktok.com")||normalizedHost.endsWith(".tiktok.com");
-            String[] clients=youtube?(audioOnly?new String[]{"web_embedded","default","android_vr",""}:new String[]{"android","web_safari","tv",""}):new String[]{""};
+            boolean facebookSource=normalizedHost.equals("facebook.com")||normalizedHost.endsWith(".facebook.com")||normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch");
+            String[] clients=youtube?(audioOnly?new String[]{"android_vr","web_embedded","default","tv","web_safari","android","ios","mweb",""}:new String[]{"android","web_safari","tv","web_embedded","default","ios","mweb",""}):(facebookSource?new String[]{"impersonate",""}:new String[]{""});
 
             // Export cookies from the embedded browser for the current URL and, for
             // Facebook share links, the destination domains they commonly redirect to.
@@ -949,12 +970,11 @@ public class MainActivity extends Activity {
                     .addOption("--fragment-retries","5")
                     .addOption("--extractor-retries","3")
                     .addOption("--user-agent",userAgent);
-                if(!client.isEmpty())request.addOption("--extractor-args","youtube:player_client="+client);
-                boolean facebookSource=normalizedHost.equals("facebook.com")||normalizedHost.endsWith(".facebook.com")||normalizedHost.equals("fb.watch")||normalizedHost.endsWith(".fb.watch");
+                if(youtube&&!client.isEmpty())request.addOption("--extractor-args","youtube:player_client="+client);
                 if(facebookSource){
                     request.addOption("--referer","https://www.facebook.com/");
                     request.addOption("--user-agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-                    request.addOption("--impersonate","chrome");
+                    if(client.equals("impersonate"))request.addOption("--impersonate","chrome");
                 }
                 if(tiktok){
                     // TikTok may reject the app's generic downloader user-agent. Use a
@@ -998,7 +1018,7 @@ public class MainActivity extends Activity {
                 }
                 // Retry public YouTube extraction with another supported player client;
                 // do not loop on other sites or on a user-cancelled task.
-                if(!youtube)break;
+                if(!youtube&&!facebookSource)break;
                 if(viewUpdate!=null)viewUpdate.set(0,"Retrying YouTube extraction…");
             }
 
@@ -1024,7 +1044,7 @@ public class MainActivity extends Activity {
                 // being reported as the result of an MP3 request.
                 boolean requestedFormat=audioOnly?
                     (n.endsWith(".m4a")||n.endsWith(".aac")||n.endsWith(".opus")||n.endsWith(".ogg")||n.endsWith(".mp3")||n.endsWith(".webm")||n.endsWith(".mka")||n.endsWith(".wav")||n.endsWith(".flac")):
-                    (n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".3gp"));
+                    (n.endsWith(".mp4")||n.endsWith(".m4v")||n.endsWith(".3gp")||n.endsWith(".webm")||n.endsWith(".mkv")||n.endsWith(".mov")||n.endsWith(".avi")||n.endsWith(".ts"));
                 boolean belongsToTask=n.startsWith(("vd_"+startedAt+"_").toLowerCase(Locale.ROOT));
                 if(f.isFile()&&belongsToTask&&f.lastModified()>=startedAt-2000&&!temporary&&requestedFormat&&!n.equals(name.toLowerCase(Locale.ROOT))){
                     if(saved==null||f.lastModified()>saved.lastModified())saved=f;
@@ -1074,11 +1094,15 @@ public class MainActivity extends Activity {
                     saved.delete();
                     throw new Exception("The source returned an MP4 without a video track. No broken file was saved; try another video or quality.");
                 }
-                // Do not transcode downloaded videos inside the app: the native FFmpeg
-                // conversion can terminate the process on some phones and leave duplicate
-                // partial MP4 files. The extractor already requests progressive H.264/AAC MP4.
-                // Keep the original validated file intact; playback compatibility is handled
-                // separately from the download task so a playback issue cannot crash a download.
+                // Keep MP4 files intact. For other video containers, create a verified MP4 copy
+                // with FFmpeg and only then remove the original, so the user never gets a mislabeled file.
+                if(!saved.getName().toLowerCase(Locale.ROOT).endsWith(".mp4")){
+                    if(viewUpdate!=null)viewUpdate.set(96,"Converting video to MP4…");
+                    File converted=convertVideoToMp4(saved);
+                    if(converted==null||!converted.isFile()||converted.length()==0)throw new Exception("Video-to-MP4 conversion failed");
+                    saved.delete();
+                    saved=converted;
+                }
                 if(cancelled)throw new InterruptedException("Cancelled");
             }
             done=true;tasks.remove(url);persistPending(url,name,true);
@@ -1411,10 +1435,18 @@ public class MainActivity extends Activity {
                 if(output.exists())output=new File(downloadDir(),safeBase+"_audio_"+System.currentTimeMillis()+".mp3");
                 final File target=output;
                 main.post(()->status.setText("Converting audio to MP3…"));
-                // Decode with Android's media codec and encode with AndroidLame. Avoids
-                // starting a second FFmpeg native session after yt-dlp has completed.
-                success=encodeAudioToMp3(source,target,bitrate);
-                if(!success)error="MP3 encoder did not produce a valid output file";
+                // Prefer Android codecs, then use FFmpeg as a fallback for audio codecs such as
+                // Opus that are not supported by every device decoder.
+                try{success=encodeAudioToMp3(source,target,bitrate);}
+                catch(Exception codecError){
+                    android.util.Log.w("VideoDownloader","Native audio decoder failed; trying FFmpeg",codecError);
+                    if(target.exists())target.delete();
+                    com.arthenica.ffmpegkit.FFmpegSession ff=com.arthenica.ffmpegkit.FFmpegKit.executeWithArguments(
+                        new String[]{"-y","-i",source.getAbsolutePath(),"-vn","-codec:a","libmp3lame","-b:a",Math.max(64,Math.min(320,bitrate))+"k","-ar","44100","-ac","2",target.getAbsolutePath()});
+                    success=ff!=null&&com.arthenica.ffmpegkit.ReturnCode.isSuccess(ff.getReturnCode())&&target.isFile()&&target.length()>0;
+                    if(!success){String details=ff==null?"no FFmpeg session":ff.getOutput();if(details!=null&&details.length()>500)details=details.substring(details.length()-500);error="Audio conversion failed: "+(details==null?"unknown error":details);}
+                }
+                if(!success&&error.isEmpty())error="MP3 encoder did not produce a valid output file";
                 if(success&&deleteSourceAfterSuccess&&source.isFile()&&!source.getAbsolutePath().equals(target.getAbsolutePath())){
                     if(!source.delete())android.util.Log.w("VideoDownloader","Could not delete temporary audio source: "+source.getName());
                 }
